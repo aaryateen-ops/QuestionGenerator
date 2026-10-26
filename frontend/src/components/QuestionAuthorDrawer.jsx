@@ -1,20 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Plus,
   Zap,
-  Cpu,
-  FileText,
   Upload,
   Tag,
   CheckCircle2,
   AlertCircle,
   Check,
-  Key,
-  BookOpen,
-  ArrowRight
 } from 'lucide-react';
 import { api } from '../api/client';
+import CameraCaptureModal from './CameraCaptureModal';
+import MathHighlightedText from './MathHighlightedText';
+import SourceImagePreview from './SourceImagePreview';
+import DuplicateQuestionNotice from './DuplicateQuestionNotice';
 
 const BLOOM_BADGES = {
   L1: 'bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
@@ -43,6 +42,17 @@ export default function QuestionAuthorDrawer({
     : 'bg-white border-zinc-300 text-zinc-900 placeholder-zinc-400 focus:border-zinc-500';
 
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [sourceFile, setSourceFile] = useState(null);
+  const [aiEngine, setAiEngine] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const scanRequest = useRef(null);
+  const classificationVersion = useRef(0);
+
+  useEffect(() => {
+    if (!isOpen) { scanRequest.current?.abort(); setScanOpen(false); }
+    return () => scanRequest.current?.abort();
+  }, [isOpen, subjectId]);
 
   // -------------------------------------------------------------
   // AI Synthesizer State
@@ -53,8 +63,8 @@ export default function QuestionAuthorDrawer({
   const [aiBloomLevel, setAiBloomLevel] = useState('L3');
   const [aiMarks, setAiMarks] = useState(2);
   const [aiDifficulty, setAiDifficulty] = useState('MEDIUM');
-  const [aiCount, setAiCount] = useState(2);
-  const [aiDocFile, setAiDocFile] = useState(null);
+  const [aiCount] = useState(2);
+  const [aiDocFile] = useState(null);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiGeneratedQuestions, setAiGeneratedQuestions] = useState([]);
   const [aiSavedSet, setAiSavedSet] = useState(new Set());
@@ -92,6 +102,7 @@ export default function QuestionAuthorDrawer({
   }, [initialTab]);
 
   useEffect(() => {
+    setSourceFile(null);
     if (editingQuestion) {
       setActiveTab('manual');
       setManualText(editingQuestion.question_text);
@@ -141,10 +152,12 @@ export default function QuestionAuthorDrawer({
 
   // Real-time NLP typing trigger for manual entry
   const handleManualTextChange = async (text) => {
+    const version = ++classificationVersion.current;
     setManualText(text);
     if (text.trim().length > 6) {
       try {
         const nlp = await api.classifyQuestion(text, subjectId);
+        if (version !== classificationVersion.current) return;
         setNlpAnalysis(nlp);
         if (!editingQuestion) {
           setManualBloom(nlp.predicted_bloom_level);
@@ -172,6 +185,8 @@ export default function QuestionAuthorDrawer({
         const formData = new FormData();
         formData.append('subject_id', subjectId);
         formData.append('file', aiDocFile);
+        const sessionKey = sessionStorage.getItem('gemini_api_key');
+        if (sessionKey) formData.append('api_key', sessionKey);
         formData.append('bloom_level', aiBloomLevel);
         formData.append('marks', aiMarks);
         formData.append('difficulty', aiDifficulty);
@@ -180,7 +195,7 @@ export default function QuestionAuthorDrawer({
         formData.append('unit_number', aiUnitNumber);
         res = await api.synthesizeFromDocument(formData);
       } else {
-        const apiKey = localStorage.getItem('gemini_api_key');
+        const apiKey = sessionStorage.getItem('gemini_api_key');
         res = await api.synthesizeQuestions({
           topic: aiTopic.trim(),
           bloom_level: aiBloomLevel,
@@ -195,6 +210,7 @@ export default function QuestionAuthorDrawer({
       }
 
       setAiGeneratedQuestions(res.questions || []);
+      setAiEngine(res.engine_used);
     } catch (err) {
       setAiError(err.message || 'AI Question synthesis failed.');
     } finally {
@@ -219,11 +235,11 @@ export default function QuestionAuthorDrawer({
         options: q.options,
         correct_answer: q.correct_answer,
         action_verb: q.action_verb,
-        confidence_score: q.confidence_score || 1.0,
+        confidence_score: q.confidence_score ?? undefined,
       });
 
       setAiSavedSet((prev) => new Set([...prev, index]));
-      setSuccessToast('Question added to repository!');
+      setSuccessToast('Question saved as draft. Faculty review is required before approval.');
       setTimeout(() => setSuccessToast(null), 2500);
       if (onQuestionSaved) onQuestionSaved();
     } catch (err) {
@@ -241,6 +257,7 @@ export default function QuestionAuthorDrawer({
 
     try {
       const isMCQ = manualType === 'MCQ';
+      if (isMCQ && !manualCorrectAnswer) throw new Error('Select the correct answer before saving this MCQ.');
       if (isMCQ) {
         if (!manualOptions.A?.trim() || !manualOptions.B?.trim() || !manualOptions.C?.trim() || !manualOptions.D?.trim()) {
           throw new Error('Please fill in all 4 choices (A, B, C, D) for the MCQ question.');
@@ -261,15 +278,15 @@ export default function QuestionAuthorDrawer({
 
       if (editingQuestion) {
         await api.updateQuestion(editingQuestion.id, payload);
-        setSuccessToast('Question updated successfully.');
+        setSuccessToast('Question updated and returned to draft.');
       } else {
         await api.createQuestion({
           ...payload,
           subject_id: subjectId,
           action_verb: nlpAnalysis?.primary_verb,
-          confidence_score: nlpAnalysis?.confidence_score || 1.0,
+          confidence_score: nlpAnalysis?.confidence_score ?? undefined,
         });
-        setSuccessToast('Question created and added to repository.');
+        setSuccessToast('Question saved as draft.');
         setManualText('');
         setNlpAnalysis(null);
       }
@@ -333,6 +350,47 @@ export default function QuestionAuthorDrawer({
     }
   };
 
+  const handleScanCopy = async file => {
+    classificationVersion.current += 1;
+    const controller = new AbortController();
+    scanRequest.current?.abort();
+    scanRequest.current = controller;
+    setScanning(true);
+    setManualError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('mode', 'EXTRACT');
+      if (subjectId) form.append('subject_id', subjectId);
+      form.append('marks', manualMarks);
+      const key = sessionStorage.getItem('gemini_api_key');
+      if (key) form.append('api_key', key);
+      const result = await api.scanQuestionImage(form, controller.signal);
+      if (controller.signal.aborted) return;
+      const question = result.questions?.[0];
+      if (!question) throw new Error('No readable question found. Retake the photo with better lighting.');
+      setManualText(question.question_text);
+      setSourceFile(file);
+      setManualMarks(question.marks);
+      setManualBloom(question.bloom_level);
+      setManualType(question.question_type);
+      setManualDiff(question.difficulty);
+      setNlpAnalysis(null);
+      setManualOptions(question.options ? (typeof question.options === 'string' ? JSON.parse(question.options) : question.options) : { A: '', B: '', C: '', D: '' });
+      setManualCorrectAnswer(question.correct_answer || '');
+      const unit = subjectDetail?.units?.find(item => item.unit_number === question.suggested_unit_number);
+      const co = subjectDetail?.course_outcomes?.find(item => item.code === question.suggested_co_code);
+      if (unit) setManualUnitId(unit.id);
+      if (co) setManualCoId(co.id);
+      setScanOpen(false);
+      setSuccessToast(result.questions.length > 1
+        ? `Filled the first of ${result.questions.length} questions. Use Scan Physical Copy in the AI Synthesizer to review and save the full set.`
+        : 'Question transcribed. Review formulas, marks, and the answer key before saving.');
+    } catch (err) {
+      if (err.name !== 'AbortError') { setManualError(err.message); throw err; }
+    } finally { if (scanRequest.current === controller) setScanning(false); }
+  };
+
   if (!isOpen) return null;
 
   // Active unit topics for quick chips
@@ -343,6 +401,8 @@ export default function QuestionAuthorDrawer({
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
+      {scanOpen && <CameraCaptureModal theme={theme} initialFile={sourceFile}
+        onClose={() => { scanRequest.current?.abort(); setScanOpen(false); }} onConfirm={handleScanCopy} />}
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in"
@@ -596,7 +656,8 @@ export default function QuestionAuthorDrawer({
                 </button>
 
                 {/* Generated Candidates Preview List */}
-                {aiGeneratedQuestions.length > 0 && (
+                {aiEngine && <p role="status" className="text-xs border border-zinc-400 rounded p-3">Generation source: {aiEngine}. {!String(aiEngine).toLowerCase().includes('gemini') ? 'Template based output, not AI verified. Check technical accuracy and answers before saving drafts.' : 'Review technical accuracy and answer keys before saving drafts.'}</p>}
+              {aiGeneratedQuestions.length > 0 && (
                   <div className="space-y-3 pt-3 border-t border-inherit">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-zinc-400 uppercase tracking-wider font-mono">
@@ -672,7 +733,7 @@ export default function QuestionAuthorDrawer({
                                 }`}
                               >
                                 {isSaved ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                                {isSaved ? 'Added' : 'Save to Bank'}
+                                {isSaved ? 'Saved as draft' : 'Save as draft'}
                               </button>
                             </div>
                           </div>
@@ -689,6 +750,11 @@ export default function QuestionAuthorDrawer({
             {/* ============================================================ */}
             {activeTab === 'manual' && (
               <form onSubmit={handleSaveManualQuestion} className="space-y-4">
+                <p className="text-xs">Questions are saved as drafts and require faculty review. Editing a reviewed or approved question returns it to draft.</p>
+                <button type="button" disabled={scanning} onClick={() => setScanOpen(true)}
+                  className="px-3 py-2 rounded border border-zinc-400 text-sm font-semibold disabled:opacity-50 hover:bg-zinc-500/10">
+                  {scanning ? 'Scanning copy…' : 'Scan Copy'}
+                </button>
                 {manualError && (
                   <div className="p-3 rounded-md border text-xs bg-rose-950/60 border-rose-800 text-rose-300 flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
@@ -757,6 +823,8 @@ export default function QuestionAuthorDrawer({
                 </div>
 
                 {/* Question Textarea */}
+                <div className={sourceFile ? 'grid md:grid-cols-2 gap-4 items-start' : ''}>
+                {sourceFile && <SourceImagePreview file={sourceFile} theme={theme} />}
                 <div>
                   <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
                     Question Description / Stem
@@ -769,7 +837,11 @@ export default function QuestionAuthorDrawer({
                     placeholder="Type question stem with clear cognitive action verbs (e.g. Compare, Derive, Formulate)..."
                     className={`w-full rounded-md p-3 text-xs border font-medium focus:outline-none leading-relaxed ${inputBg}`}
                   />
+                  {manualText && <div className="mt-2 text-sm leading-relaxed" aria-label="Question math preview"><MathHighlightedText text={manualText} isDark={isDark} /></div>}
                 </div>
+
+                </div>
+                <DuplicateQuestionNotice subjectId={subjectId} text={manualText} excludeId={editingQuestion?.id} active={isOpen && activeTab === 'manual'} />
 
                 {/* Real-time NLP Verb Banner */}
                 {nlpAnalysis && (
@@ -879,7 +951,7 @@ export default function QuestionAuthorDrawer({
                       : 'bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50'
                   }`}
                 >
-                  {manualSubmitting ? 'Saving...' : editingQuestion ? 'Update Question' : 'Save Question to Bank'}
+                  {manualSubmitting ? 'Saving...' : editingQuestion ? 'Update and return to draft' : 'Save as draft'}
                 </button>
               </form>
             )}

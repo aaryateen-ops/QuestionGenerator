@@ -3,7 +3,10 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from app.db.session import get_db
-from app.models.entities import Subject, Question, GeneratedPaper
+from app.models.entities import Subject, Question, GeneratedPaper, User
+from app.api.endpoints.auth import get_current_user
+from app.services.access import accessible_subject_ids, require_subject_access
+from app.services.paper_quality import answerable_marks, assess_paper
 from app.schemas.dtos import (
     GeneratePaperRequest, GeneratedPaperResponse, SwapQuestionRequest,
     CandidateQuestionResponse
@@ -13,9 +16,26 @@ from app.core.errors import NotFoundException, ConstraintViolationException
 
 router = APIRouter(prefix="/papers", tags=["Question Paper Generator"])
 
+
+@router.get('/{paper_id}/quality')
+def paper_quality(paper_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    paper = db.query(GeneratedPaper).filter(GeneratedPaper.id == paper_id).first()
+    if not paper:
+        raise NotFoundException('GeneratedPaper', paper_id)
+    require_subject_access(db, user, paper.subject_id)
+    data = json.loads(paper.paper_data_json)
+    data['total_marks'] = paper.total_marks
+    ids = [question.get('question_id') for section in data.get('sections', []) for question in section.get('questions', [])]
+    current = db.query(Question).filter(Question.id.in_(ids), Question.subject_id == paper.subject_id).all()
+    return assess_paper(data, {question.id: question for question in current})
+
 @router.get("", response_model=List[Dict[str, Any]])
-def list_papers(db: Session = Depends(get_db)):
-    papers = db.query(GeneratedPaper).order_by(GeneratedPaper.created_at.desc()).all()
+def list_papers(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    query = db.query(GeneratedPaper)
+    subject_ids = accessible_subject_ids(db, user)
+    if subject_ids is not None:
+        query = query.filter(GeneratedPaper.subject_id.in_(subject_ids))
+    papers = query.order_by(GeneratedPaper.created_at.desc()).all()
     results = []
     for p in papers:
         data = json.loads(p.paper_data_json)
@@ -33,10 +53,11 @@ def list_papers(db: Session = Depends(get_db)):
     return results
 
 @router.get("/{paper_id}", response_model=GeneratedPaperResponse)
-def get_paper(paper_id: int, db: Session = Depends(get_db)):
+def get_paper(paper_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     p = db.query(GeneratedPaper).filter(GeneratedPaper.id == paper_id).first()
     if not p:
         raise NotFoundException("GeneratedPaper", paper_id)
+    require_subject_access(db, user, p.subject_id)
     
     data = json.loads(p.paper_data_json)
     return GeneratedPaperResponse(
@@ -64,13 +85,14 @@ from fastapi.responses import StreamingResponse
 from app.engine.pdf_exporter import UniversityPDFExporter
 
 @router.get("/{paper_id}/download-pdf")
-def download_paper_pdf(paper_id: int, db: Session = Depends(get_db)):
+def download_paper_pdf(paper_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """
     Generates and downloads a submission-ready, official PDF examination sheet.
     """
     p = db.query(GeneratedPaper).filter(GeneratedPaper.id == paper_id).first()
     if not p:
         raise NotFoundException("GeneratedPaper", paper_id)
+    require_subject_access(db, user, p.subject_id)
 
     data = json.loads(p.paper_data_json)
     pdf_buffer = UniversityPDFExporter.generate_pdf(data)
@@ -84,15 +106,16 @@ def download_paper_pdf(paper_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/generate", response_model=GeneratedPaperResponse, status_code=status.HTTP_201_CREATED)
-def generate_paper(payload: GeneratePaperRequest, db: Session = Depends(get_db)):
+def generate_paper(payload: GeneratePaperRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    require_subject_access(db, user, payload.subject_id)
     subj = db.query(Subject).filter(Subject.id == payload.subject_id).first()
     if not subj:
         raise NotFoundException("Subject", payload.subject_id)
 
     # Fetch question pool for subject
-    questions = db.query(Question).filter(Question.subject_id == payload.subject_id).all()
+    questions = db.query(Question).filter(Question.subject_id == payload.subject_id, Question.review_status == 'APPROVED').all()
     if not questions:
-        raise ConstraintViolationException("No questions exist in the repository for this subject.")
+        raise ConstraintViolationException('No approved questions are available for this course. Review and approve repository questions before composing an examination.')
 
     # Convert questions to solver dict format
     pool = []
@@ -188,10 +211,11 @@ def generate_paper(payload: GeneratePaperRequest, db: Session = Depends(get_db))
     )
 
 @router.get("/{paper_id}/swap-candidates/{question_id}", response_model=List[CandidateQuestionResponse])
-def get_swap_candidates(paper_id: int, question_id: int, db: Session = Depends(get_db)):
+def get_swap_candidates(paper_id: int, question_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     paper = db.query(GeneratedPaper).filter(GeneratedPaper.id == paper_id).first()
     if not paper:
         raise NotFoundException("GeneratedPaper", paper_id)
+    require_subject_access(db, user, paper.subject_id)
     
     paper_data = json.loads(paper.paper_data_json)
     
@@ -208,7 +232,7 @@ def get_swap_candidates(paper_id: int, question_id: int, db: Session = Depends(g
         raise NotFoundException("Question in Paper", question_id)
 
     # Fetch pool for this subject
-    all_questions = db.query(Question).filter(Question.subject_id == paper.subject_id).all()
+    all_questions = db.query(Question).filter(Question.subject_id == paper.subject_id, Question.review_status == 'APPROVED').all()
     subj = db.query(Subject).filter(Subject.id == paper.subject_id).first()
     unit_map = {u.id: u.unit_number for u in subj.units}
     co_map = {c.id: c.code for c in subj.course_outcomes}
@@ -237,14 +261,17 @@ def get_swap_candidates(paper_id: int, question_id: int, db: Session = Depends(g
     return [CandidateQuestionResponse(**c) for c in candidates]
 
 @router.post("/swap", response_model=GeneratedPaperResponse)
-def execute_swap(payload: SwapQuestionRequest, db: Session = Depends(get_db)):
+def execute_swap(payload: SwapQuestionRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     paper = db.query(GeneratedPaper).filter(GeneratedPaper.id == payload.paper_id).first()
     if not paper:
         raise NotFoundException("GeneratedPaper", payload.paper_id)
+    require_subject_access(db, user, paper.subject_id)
 
     target_q = db.query(Question).filter(Question.id == payload.target_question_id).first()
     if not target_q:
         raise NotFoundException("Replacement Question", payload.target_question_id)
+    if target_q.subject_id != paper.subject_id or target_q.review_status != 'APPROVED':
+        raise ConstraintViolationException('Replacement questions must be approved and belong to this examination’s course.')
 
     paper_data = json.loads(paper.paper_data_json)
     subj = db.query(Subject).filter(Subject.id == paper.subject_id).first()
@@ -315,8 +342,9 @@ def execute_swap(payload: SwapQuestionRequest, db: Session = Depends(get_db)):
     paper_data["difficulty_analysis"] = PaperComposerEngine._calculate_difficulty_distribution(all_selected)
 
     # Recalculate total_marks from updated paper data and update DB
-    recalculated_total_marks = sum(q.get("marks", 0) for q in all_selected)
+    recalculated_total_marks = answerable_marks(paper_data['sections'])
     paper.total_marks = recalculated_total_marks
+    paper_data['total_marks'] = recalculated_total_marks
 
     paper.paper_data_json = json.dumps(paper_data)
     db.commit()

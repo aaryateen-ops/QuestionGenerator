@@ -98,7 +98,7 @@ export default function DashboardView({ stats, subjectDetail, onNavigate, onQuic
             <span className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">{totalQuestions}</span>
             <span className="text-xs text-emerald-500 font-medium">Questions Indexed</span>
           </div>
-          <p className="text-[11px] text-zinc-500 mt-1">Verified with action-verb NLP tags</p>
+          <p className="text-[11px] text-zinc-500 mt-1">Indexed with suggested Bloom action-verb tags</p>
         </div>
 
         {/* Syllabus Coverage */}

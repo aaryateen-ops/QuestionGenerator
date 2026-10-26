@@ -230,18 +230,18 @@ export default function Sidebar({
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1">
                 <span className="text-xs font-bold truncate block">
-                  {currentUser?.full_name || 'Institutional Faculty'}
+                  {currentUser?.full_name || 'Sign in required'}
                 </span>
                 <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border shrink-0 ${
                   currentUser?.role === 'ADMIN'
                     ? isDark ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800' : 'bg-emerald-50 text-emerald-700 border-emerald-300'
                     : isDark ? 'bg-sky-950/80 text-sky-400 border-sky-800' : 'bg-sky-50 text-sky-700 border-sky-300'
                 }`}>
-                  {currentUser?.role || 'FACULTY'}
+                  {currentUser?.role || 'GUEST'}
                 </span>
               </div>
               <span className="text-[10px] text-zinc-500 font-mono truncate block">
-                {currentUser?.email || 'authenticated'}
+                {currentUser?.email || 'No active session'}
               </span>
             </div>
           </div>

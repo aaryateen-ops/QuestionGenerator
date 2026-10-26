@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Printer, ArrowLeft, Download, Eye, EyeOff, CheckSquare, Award, Settings } from 'lucide-react';
-import { api } from '../api/client';
+import { Printer, ArrowLeft, Eye, EyeOff, Settings } from 'lucide-react';
+import PaperPdfDownload from './PaperPdfDownload';
 
 function parseOptions(optionsRaw) {
   if (!optionsRaw) return null;
@@ -115,18 +115,12 @@ export default function PrintableExamView({ paper, onBack, theme, institutionCon
             {showAnswerKey ? 'Faculty Key Active' : 'Student View (No Key)'}
           </button>
 
-          <a
-            href={api.getDownloadPdfUrl(paper.id)}
-            download
+          <PaperPdfDownload paper={paper}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md border transition-colors shadow-sm ${
               isDark
                 ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
                 : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-800 border-zinc-300'
-            }`}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download PDF
-          </a>
+            }`} />
 
           <button
             onClick={handlePrint}

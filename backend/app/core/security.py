@@ -8,7 +8,7 @@ import secrets
 from typing import Optional, Dict, Any
 from app.core.config import settings
 
-SECRET_KEY = getattr(settings, "SECRET_KEY", "institution-grade-super-secret-key-2026-qp-generator")
+SECRET_KEY = settings.SECRET_KEY
 
 def hash_password(password: str) -> str:
     """
@@ -94,9 +94,14 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         payload_bytes = _b64url_decode(encoded_payload)
         payload = json.loads(payload_bytes.decode("utf-8"))
         
-        # Check expiration
+        header = json.loads(_b64url_decode(encoded_header))
+        if header != {"alg": "HS256", "typ": "JWT"} or not isinstance(payload, dict):
+            return None
+        subject = payload.get("sub")
+        if not isinstance(subject, str) or not subject.isascii() or not subject.isdigit() or not 0 < int(subject) < 2**63:
+            return None
         now = int(time.time())
-        if payload.get("exp") and payload["exp"] < now:
+        if type(payload.get("exp")) is not int or payload["exp"] <= now:
             return None
         
         return payload

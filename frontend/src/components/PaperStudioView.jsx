@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { FileText, RefreshCw, Printer, Download, CheckCircle, BarChart3, ArrowRightLeft, X, Check, Award, AlertCircle, CheckSquare, Eye, EyeOff } from 'lucide-react';
+import { Printer, CheckCircle, BarChart3, ArrowRightLeft, X, Check, Award, Eye, EyeOff } from 'lucide-react';
 import { api } from '../api/client';
+import PaperPdfDownload from './PaperPdfDownload';
+import PaperQualityPanel from './PaperQualityPanel';
 
 const BLOOM_BADGES = {
   L1: 'bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
@@ -168,18 +170,12 @@ export default function PaperStudioView({ paper, onPaperUpdated, onNavigateToPri
             {showAnswerKeys ? 'Hide Keys' : 'Show Keys'}
           </button>
 
-          <a
-            href={api.getDownloadPdfUrl(paper.id)}
-            download
+          <PaperPdfDownload paper={paper}
             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-md border transition-colors shadow-sm ${
               isDark
                 ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
                 : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-800 border-zinc-300'
-            }`}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download PDF
-          </a>
+            }`} />
 
           <button
             onClick={onNavigateToPrint}
@@ -192,6 +188,8 @@ export default function PaperStudioView({ paper, onPaperUpdated, onNavigateToPri
           </button>
         </div>
       </div>
+
+      <PaperQualityPanel key={paper.id} paperId={paper.id} theme={theme} />
 
       {/* Analytics Summary Panels */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -434,6 +432,7 @@ export default function PaperStudioView({ paper, onPaperUpdated, onNavigateToPri
                 Compatible Repository Candidates:
               </span>
 
+              {swapError && <p role="alert" className="text-sm text-red-600 dark:text-red-400 mb-3">{swapError}</p>}
               {loadingCandidates ? (
                 <div className="py-8 text-center text-xs text-zinc-500">
                   Searching compatible repository questions...

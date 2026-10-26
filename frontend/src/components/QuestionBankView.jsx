@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search,
   Plus,
@@ -24,6 +24,8 @@ import {
 import { api } from '../api/client';
 import QuestionAuthorDrawer from './QuestionAuthorDrawer';
 import MathHighlightedText from './MathHighlightedText';
+import QuestionReviewPanel from './QuestionReviewPanel';
+import ConfirmDialog from './ConfirmDialog';
 
 const BLOOM_META = {
   L1: { label: 'L1', name: 'Remember', dot: 'bg-emerald-500' },
@@ -34,10 +36,7 @@ const BLOOM_META = {
   L6: { label: 'L6', name: 'Create', dot: 'bg-purple-500' },
 };
 
-const BLOOM_RANK = { L1: 1, L2: 2, L3: 3, L4: 4, L5: 5, L6: 6 };
-const DIFF_RANK = { EASY: 1, MEDIUM: 2, HARD: 3 };
-
-export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, theme }) {
+export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, theme, currentUser }) {
   const isDark = theme === 'dark';
   const cardBg = isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900 shadow-sm';
   const inputBg = isDark
@@ -46,6 +45,17 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
 
   const [allQuestions, setAllQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState({});
+  const [loadError, setLoadError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [reviewStatus, setReviewStatus] = useState('');
+  const [reviewQuestion, setReviewQuestion] = useState(null);
+  const [deleteIds, setDeleteIds] = useState(null);
+  const [deleteError, setDeleteError] = useState('');
+  const requestId = useRef(0);
   const [search, setSearch] = useState('');
   const [selectedUnit, setSelectedUnit] = useState('');
   const [selectedBloom, setSelectedBloom] = useState('');
@@ -81,11 +91,6 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
   const [drawerInitialTab, setDrawerInitialTab] = useState('ai');
   const [drawerEditQuestion, setDrawerEditQuestion] = useState(null);
 
-  useEffect(() => {
-    fetchQuestions();
-    setSelectedIds([]);
-  }, [subjectId]);
-
   // Keyboard shortcut: Escape deselects all
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -97,18 +102,38 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedIds, isAssignModalOpen, isDrawerOpen]);
 
-  const fetchQuestions = async () => {
+  const fetchQuestions = useCallback(async () => {
+    const request = ++requestId.current;
     setLoading(true);
+    setLoadError('');
     try {
-      const data = await api.getQuestions({
-        subject_id: subjectId,
-      });
-      setAllQuestions(data || []);
+      const data = await api.getQuestionPage({ subject_id: subjectId, search: search.trim() || undefined,
+        unit_id: selectedUnit || undefined, bloom_level: selectedBloom || undefined,
+        difficulty: selectedDifficulty || undefined, marks: selectedMarks || undefined,
+        question_type: selectedType || undefined, review_status: reviewStatus || undefined,
+        sort_by: sortField, sort_direction: sortDirection, page, page_size: pageSize });
+      if (request !== requestId.current) return;
+      const lastPage = Math.max(1, Math.ceil(data.total / pageSize));
+      if (page > lastPage) { setPage(lastPage); return; }
+      setAllQuestions(data.items || []);
+      setTotal(data.total || 0);
+      setCounts(data.counts || {});
     } catch (err) {
-      console.error('Failed to fetch questions:', err);
+      if (request === requestId.current) setLoadError(err.message || 'Unable to load questions. Please retry.');
     } finally {
-      setLoading(false);
+      if (request === requestId.current) setLoading(false);
     }
+  }, [subjectId, search, selectedUnit, selectedBloom, selectedDifficulty, selectedMarks, selectedType, reviewStatus, sortField, sortDirection, page, pageSize]);
+
+  useEffect(() => {
+    const invalidate = () => { requestId.current++; };
+    const timer = setTimeout(() => { setSelectedIds([]); fetchQuestions(); }, 200);
+    return () => { clearTimeout(timer); invalidate(); };
+  }, [fetchQuestions]);
+
+  const clearFilters = () => {
+    setSearch(''); setSelectedUnit(''); setSelectedBloom(''); setSelectedDifficulty('');
+    setSelectedMarks(''); setSelectedType(''); setReviewStatus(''); setPage(1);
   };
 
   const handleOpenDrawer = (tab = 'ai', questionToEdit = null) => {
@@ -117,17 +142,20 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
     setIsDrawerOpen(true);
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Delete this question from the repository?')) {
-      try {
-        await api.deleteQuestion(id);
-        fetchQuestions();
-        setSelectedIds((prev) => prev.filter((item) => item !== id));
-        if (onUpdate) onUpdate();
-      } catch (err) {
-        alert(err.message || 'Failed to delete question');
-      }
-    }
+  const handleDelete = id => { setDeleteError(''); setDeleteIds([id]); };
+  const confirmDelete = async () => {
+    setBatchActionLoading(true);
+    setDeleteError('');
+    try {
+      if (deleteIds.length === 1) await api.deleteQuestion(deleteIds[0]);
+      else await api.batchDeleteQuestions(deleteIds);
+      setDeleteIds(null);
+      setSelectedIds([]);
+      setNotice('Questions deleted from the repository.');
+      await fetchQuestions();
+      onUpdate?.();
+    } catch (err) { setDeleteError(err.message || 'Unable to delete questions. Please retry.'); }
+    finally { setBatchActionLoading(false); }
   };
 
   // Sorting Handler
@@ -137,82 +165,11 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
     } else {
       setSortField(field);
       setSortDirection('asc');
+      setPage(1);
     }
   };
 
-  // Fast in-memory filtering: 0ms latency, persistent master counts
-  const filteredQuestions = useMemo(() => {
-    return allQuestions.filter((q) => {
-      if (selectedType && q.question_type !== selectedType) return false;
-      if (selectedBloom && q.bloom_level !== selectedBloom) return false;
-      if (selectedUnit && q.unit_id !== Number(selectedUnit)) return false;
-      if (selectedDifficulty && q.difficulty !== selectedDifficulty) return false;
-      if (selectedMarks && q.marks !== Number(selectedMarks)) return false;
-      if (search && search.trim()) {
-        const s = search.trim().toLowerCase();
-        const textMatch = (q.question_text || '').toLowerCase().includes(s);
-        const verbMatch = (q.action_verb || '').toLowerCase().includes(s);
-        if (!textMatch && !verbMatch) return false;
-      }
-      return true;
-    });
-  }, [allQuestions, selectedType, selectedBloom, selectedUnit, selectedDifficulty, selectedMarks, search]);
-
-  // Process and sort filtered questions
-  const sortedQuestions = useMemo(() => {
-    const list = [...filteredQuestions];
-    if (!sortField) return list;
-
-    list.sort((a, b) => {
-      let valA, valB;
-      const unitA = subjectDetail?.units?.find((u) => u.id === a.unit_id)?.unit_number || 0;
-      const unitB = subjectDetail?.units?.find((u) => u.id === b.unit_id)?.unit_number || 0;
-      const coA = subjectDetail?.course_outcomes?.find((c) => c.id === a.co_id)?.code || '';
-      const coB = subjectDetail?.course_outcomes?.find((c) => c.id === b.co_id)?.code || '';
-
-      switch (sortField) {
-        case 'unit':
-          valA = unitA;
-          valB = unitB;
-          break;
-        case 'marks':
-          valA = a.marks || 0;
-          valB = b.marks || 0;
-          break;
-        case 'bloom':
-          valA = BLOOM_RANK[a.bloom_level] || 0;
-          valB = BLOOM_RANK[b.bloom_level] || 0;
-          break;
-        case 'difficulty':
-          valA = DIFF_RANK[a.difficulty] || 0;
-          valB = DIFF_RANK[b.difficulty] || 0;
-          break;
-        case 'type':
-          valA = a.question_type || '';
-          valB = b.question_type || '';
-          break;
-        case 'co':
-          valA = coA;
-          valB = coB;
-          break;
-        case 'usage':
-          valA = a.usage_count || 0;
-          valB = b.usage_count || 0;
-          break;
-        case 'created_at':
-        default:
-          valA = new Date(a.created_at || 0).getTime();
-          valB = new Date(b.created_at || 0).getTime();
-          break;
-      }
-
-      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
-      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-
-    return list;
-  }, [filteredQuestions, sortField, sortDirection, subjectDetail]);
+  const sortedQuestions = allQuestions;
 
   // Selection Logic
   const allSelected = sortedQuestions.length > 0 && sortedQuestions.every((q) => selectedIds.includes(q.id));
@@ -233,28 +190,12 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
   };
 
   // Batch Operations
-  const handleBatchDelete = async () => {
-    if (selectedIds.length === 0) return;
-    const count = selectedIds.length;
-    if (window.confirm(`Permanently delete ${count} selected question${count > 1 ? 's' : ''} from the repository?`)) {
-      setBatchActionLoading(true);
-      try {
-        await api.batchDeleteQuestions(selectedIds);
-        setSelectedIds([]);
-        await fetchQuestions();
-        if (onUpdate) onUpdate();
-      } catch (err) {
-        alert(err.message || 'Batch delete failed');
-      } finally {
-        setBatchActionLoading(false);
-      }
-    }
-  };
+  const handleBatchDelete = () => { if (selectedIds.length) { setDeleteError(''); setDeleteIds([...selectedIds]); } };
 
   const handleBatchAssign = async () => {
     if (selectedIds.length === 0) return;
     if (!targetBatchUnit && !targetBatchCO) {
-      alert('Please select either a Unit or a Course Outcome (CO) to assign.');
+      setNotice('Select a unit or course outcome before applying this change.');
       return;
     }
     setBatchActionLoading(true);
@@ -271,7 +212,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
       await fetchQuestions();
       if (onUpdate) onUpdate();
     } catch (err) {
-      alert(err.message || 'Batch assign failed');
+      setNotice(err.message || 'Unable to reassign questions. Please retry.');
     } finally {
       setBatchActionLoading(false);
     }
@@ -308,7 +249,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
       if (q.question_type === 'MCQ' && q.options) {
         try {
           parsedOpts = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
-        } catch (e) {}
+        } catch {}
       }
 
       return [
@@ -340,6 +281,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   // Batch Export JSON
@@ -363,24 +305,10 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
-  // Quick Stats Metrics computed from the MASTER repository (allQuestions)
-  const typeCounts = useMemo(() => {
-    const counts = { MCQ: 0, SHORT: 0, LONG: 0 };
-    allQuestions.forEach((q) => {
-      if (counts[q.question_type] !== undefined) counts[q.question_type]++;
-    });
-    return counts;
-  }, [allQuestions]);
-
-  const bloomCounts = useMemo(() => {
-    const counts = { L1: 0, L2: 0, L3: 0, L4: 0, L5: 0, L6: 0 };
-    allQuestions.forEach((q) => {
-      if (counts[q.bloom_level] !== undefined) counts[q.bloom_level]++;
-    });
-    return counts;
-  }, [allQuestions]);
+  const typeCounts = counts;
 
   const renderSortIndicator = (field) => {
     if (sortField !== field) {
@@ -396,15 +324,16 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
   return (
     <div className="space-y-3 relative pb-16">
       {/* Top Segment: Search & Action Toolbar */}
-      <div className={`${cardBg} border rounded-lg p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 transition-colors`}>
-        <div className="flex items-center gap-2 flex-1 max-w-md">
+      <div className={`${cardBg} border rounded-lg p-3 flex flex-col md:flex-row md:flex-wrap md:items-center justify-between gap-3 transition-colors`}>
+        <div className="flex items-center gap-2 flex-1 w-full md:min-w-64 max-w-lg">
           <div className="relative w-full">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
             <input
               type="text"
               placeholder="Search questions or keywords..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              aria-label="Search questions or keywords"
               className={`w-full rounded-md pl-9 pr-3 py-1.5 text-xs border focus:outline-none ${inputBg}`}
             />
             {search && (
@@ -422,7 +351,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
           {/* Unit Filter */}
           <select
             value={selectedUnit}
-            onChange={(e) => setSelectedUnit(e.target.value)}
+            aria-label="Filter unit" onChange={(e) => { setSelectedUnit(e.target.value); setPage(1); }}
             className={`text-xs rounded-md px-2.5 py-1.5 border focus:outline-none ${inputBg}`}
           >
             <option value="">All Units</option>
@@ -436,7 +365,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
           {/* Bloom Filter */}
           <select
             value={selectedBloom}
-            onChange={(e) => setSelectedBloom(e.target.value)}
+            aria-label="Filter bloom" onChange={(e) => { setSelectedBloom(e.target.value); setPage(1); }}
             className={`text-xs rounded-md px-2.5 py-1.5 border focus:outline-none ${inputBg}`}
           >
             <option value="">All Bloom Levels</option>
@@ -451,7 +380,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
           {/* Question Type Filter */}
           <select
             value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value)}
+            aria-label="Filter type" onChange={(e) => { setSelectedType(e.target.value); setPage(1); }}
             className={`text-xs rounded-md px-2.5 py-1.5 border focus:outline-none ${inputBg}`}
           >
             <option value="">All Types</option>
@@ -535,7 +464,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
           isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
         }`}>
           {[
-            { id: '', label: 'All', count: allQuestions.length, activeStyle: isDark ? 'bg-zinc-800 text-white font-semibold shadow-xs' : 'bg-white text-zinc-900 font-semibold shadow-xs' },
+            { id: '', label: 'All', count: counts.all || 0, activeStyle: isDark ? 'bg-zinc-800 text-white font-semibold shadow-xs' : 'bg-white text-zinc-900 font-semibold shadow-xs' },
             { id: 'MCQ', label: 'MCQs', count: typeCounts.MCQ, activeStyle: 'bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 font-semibold shadow-xs border border-amber-200/80 dark:border-amber-800/60' },
             { id: 'SHORT', label: 'Short', count: typeCounts.SHORT, activeStyle: 'bg-sky-50 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300 font-semibold shadow-xs border border-sky-200/80 dark:border-sky-800/60' },
             { id: 'LONG', label: 'Long', count: typeCounts.LONG, activeStyle: 'bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 font-semibold shadow-xs border border-purple-200/80 dark:border-purple-800/60' },
@@ -544,7 +473,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
             return (
               <button
                 key={tab.id}
-                onClick={() => setSelectedType(tab.id)}
+                onClick={() => { setSelectedType(tab.id); setPage(1); }}
                 className={`px-3 py-1 rounded-md text-[11px] transition-colors flex items-center gap-1.5 ${
                   isActive
                     ? tab.activeStyle
@@ -560,39 +489,28 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
           })}
         </div>
 
-        {/* Minimal Cognitive Indicators */}
-        <div className="flex items-center gap-2 flex-wrap text-xs">
-          <span className="text-[11px] text-zinc-500 font-mono hidden sm:inline">Cognitive:</span>
-          {Object.entries(BLOOM_META).map(([lvl, meta]) => {
-            const count = bloomCounts[lvl] || 0;
-            const isSelected = selectedBloom === lvl;
-
-            return (
-              <button
-                key={lvl}
-                onClick={() => setSelectedBloom(selectedBloom === lvl ? '' : lvl)}
-                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono transition-colors ${
-                  isSelected
-                    ? isDark
-                      ? 'bg-zinc-800 text-white font-bold ring-1 ring-zinc-600'
-                      : 'bg-zinc-200 text-zinc-950 font-bold ring-1 ring-zinc-400'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                }`}
-                title={`Filter by Bloom Level ${lvl} (${meta.name})`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                <span>{lvl}</span>
-                <span className="text-[10px] opacity-60">({count})</span>
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="text-xs">Review status
+            <select aria-label="Review status" value={reviewStatus} onChange={e => { setReviewStatus(e.target.value); setPage(1); }} className={`ml-2 border rounded px-2 py-1.5 ${inputBg}`}>
+              <option value="">All statuses</option>
+              {['DRAFT', 'REVIEWED', 'APPROVED'].map(status => <option key={status} value={status}>{status.charAt(0) + status.slice(1).toLowerCase()} ({counts[status] || 0})</option>)}
+            </select>
+          </label>
+          <select aria-label="Difficulty" value={selectedDifficulty} onChange={e => { setSelectedDifficulty(e.target.value); setPage(1); }} className={`border rounded px-2 py-1.5 ${inputBg}`}>
+            <option value="">All difficulties</option>{['EASY','MEDIUM','HARD'].map(d => <option key={d}>{d}</option>)}
+          </select>
+          <input aria-label="Filter marks" type="number" min="1" placeholder="Marks" value={selectedMarks} onChange={e => { setSelectedMarks(e.target.value); setPage(1); }} className={`w-20 border rounded px-2 py-1.5 ${inputBg}`} />
+          <button type="button" onClick={clearFilters} className="underline underline-offset-2">Clear filters</button>
         </div>
       </div>
+      {notice && <div role="status" className={`${cardBg} border rounded p-3 flex justify-between gap-3 text-sm`}><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={16} /></button></div>}
+      {loadError && <div role="alert" className="border border-red-500 rounded p-3 text-sm text-red-700 dark:text-red-300 flex gap-3 justify-between"><span>{loadError}</span><button onClick={fetchQuestions} className="font-semibold underline">Retry</button></div>}
+      {!loading && counts.all > 0 && !counts.APPROVED && <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>Questions remain drafts until reviewed. An administrator must approve them before they can be used in a new examination paper.</p>}
 
       {/* Questions Data Table: Clean, Zero Box Overdose, Crystal Clear Text */}
-      <div className={`${cardBg} border rounded-lg overflow-hidden shadow-xs`}>
+      <div aria-busy={loading} className={`${cardBg} border rounded-lg overflow-hidden shadow-xs`}>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full table-fixed md:table-auto text-left text-xs">
             <thead className={`border-b text-[11px] font-semibold uppercase tracking-wider ${
               isDark ? 'bg-zinc-950 text-zinc-400 border-zinc-800' : 'bg-zinc-50 text-zinc-600 border-zinc-200'
             }`}>
@@ -617,19 +535,17 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
 
                 {/* Column: Type (Plain text, no box) */}
                 <th
-                  onClick={() => handleSort('type')}
-                  className="py-3 px-3 w-18 cursor-pointer select-none group hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                  className="hidden md:table-cell py-3 px-3 w-18 cursor-pointer select-none group hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
                 >
                   <div className="flex items-center gap-1">
                     <span>Type</span>
-                    {renderSortIndicator('type')}
                   </div>
                 </th>
 
                 {/* Column: Marks (Plain text, no box) */}
                 <th
-                  onClick={() => handleSort('marks')}
-                  className="py-3 px-3 w-16 cursor-pointer select-none group hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                  tabIndex={0} aria-sort={sortField === 'marks' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('marks'); } }} onClick={() => handleSort('marks')}
+                  className="hidden md:table-cell py-3 px-3 w-16 cursor-pointer select-none group hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
                 >
                   <div className="flex items-center gap-1">
                     <span>Marks</span>
@@ -639,31 +555,31 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
 
                 {/* Column: Cognitive Bloom Level (Dot + text, no box) */}
                 <th
-                  onClick={() => handleSort('bloom')}
-                  className="py-3 px-3 w-28 cursor-pointer select-none group hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                  tabIndex={0} aria-sort={sortField === 'bloom_level' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('bloom_level'); } }} onClick={() => handleSort('bloom_level')}
+                  className="hidden md:table-cell py-3 px-3 w-28 cursor-pointer select-none group hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
                 >
                   <div className="flex items-center gap-1">
                     <span>Cognitive</span>
-                    {renderSortIndicator('bloom')}
+                    {renderSortIndicator('bloom_level')}
                   </div>
                 </th>
 
                 {/* Column: Syllabus (Unit & CO) */}
                 <th
-                  onClick={() => handleSort('unit')}
-                  className="py-3 px-3 w-24 cursor-pointer select-none group hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                  tabIndex={0} aria-sort={sortField === 'unit_id' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('unit_id'); } }} onClick={() => handleSort('unit_id')}
+                  className="hidden md:table-cell py-3 px-3 w-24 cursor-pointer select-none group hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
                 >
                   <div className="flex items-center gap-1">
                     <span>Syllabus</span>
-                    {renderSortIndicator('unit')}
+                    {renderSortIndicator('unit_id')}
                   </div>
                 </th>
 
                 {/* Column: Question Stem & Content (Takes full space) */}
-                <th className="py-3 px-4">Question Text & Stem Decomposition</th>
+                <th className="py-3 px-2 sm:px-4"><span className="md:hidden">Question</span><span className="hidden md:inline">Question Text & Stem Decomposition</span></th>
 
                 {/* Column: Actions */}
-                <th className="py-3 px-3 w-16 text-center">Actions</th>
+                <th className="py-3 px-2 text-center w-24 md:w-auto">Review & actions</th>
               </tr>
             </thead>
             <tbody className={`divide-y ${isDark ? 'divide-zinc-800/60' : 'divide-zinc-200'}`}>
@@ -673,7 +589,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
                     Loading questions from repository...
                   </td>
                 </tr>
-              ) : sortedQuestions.length === 0 ? (
+              ) : loadError ? (<tr><td colSpan={7} className="p-10 text-center text-sm">Questions could not be loaded. Use Retry above.</td></tr>) : sortedQuestions.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-zinc-500">
                     <div className="max-w-sm mx-auto space-y-2">
@@ -705,7 +621,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
                   if (q.question_type === 'MCQ' && q.options) {
                     try {
                       parsedOpts = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
-                    } catch (e) {
+                    } catch {
                       parsedOpts = null;
                     }
                   }
@@ -728,7 +644,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
                       {/* Checkbox */}
                       <td className={`${rowPadding} px-3 text-center`}>
                         <button
-                          onClick={() => handleToggleSelect(q.id)}
+                          aria-label={`Select question ${q.id}`} aria-pressed={isSelected} onClick={() => handleToggleSelect(q.id)}
                           className="flex items-center justify-center p-0.5 text-zinc-400 hover:text-zinc-600 transition-colors"
                         >
                           {isSelected ? (
@@ -740,7 +656,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
                       </td>
 
                       {/* Type: Flat clean text, zero box */}
-                      <td className={`${rowPadding} px-3`}>
+                      <td className={`hidden md:table-cell ${rowPadding} px-3`}>
                         <span className={`font-mono text-xs font-semibold ${
                           q.question_type === 'MCQ'
                             ? 'text-amber-500 dark:text-amber-400'
@@ -753,14 +669,14 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
                       </td>
 
                       {/* Marks: Flat clean text, zero box */}
-                      <td className={`${rowPadding} px-3`}>
+                      <td className={`hidden md:table-cell ${rowPadding} px-3`}>
                         <span className={`font-mono text-xs font-semibold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
                           {q.marks}M
                         </span>
                       </td>
 
                       {/* Cognitive Bloom Level: Dot + clean text, zero box */}
-                      <td className={`${rowPadding} px-3`}>
+                      <td className={`hidden md:table-cell ${rowPadding} px-3`}>
                         <div className="flex items-center gap-1.5 font-mono text-xs">
                           <span className={`w-2 h-2 rounded-full shrink-0 ${BLOOM_META[q.bloom_level]?.dot || 'bg-zinc-400'}`} />
                           <span className={`font-semibold ${isDark ? 'text-zinc-100' : 'text-zinc-900'}`}>
@@ -773,20 +689,21 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
                       </td>
 
                       {/* Syllabus: Flat text, zero box */}
-                      <td className={`${rowPadding} px-3`}>
+                      <td className={`hidden md:table-cell ${rowPadding} px-3`}>
                         <div className="font-mono text-xs">
                           <span className={`font-medium ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
-                            U{unitObj?.unit_number || '1'}
+                            {unitObj ? `U${unitObj.unit_number}` : 'Unassigned'}
                           </span>
                           <span className="mx-1 text-zinc-400">/</span>
                           <span className="text-zinc-500 font-medium">
-                            {coObj?.code || 'CO1'}
+                            {coObj?.code || 'No CO'}
                           </span>
                         </div>
                       </td>
 
                       {/* Question Text & Decomposition (Crisp, High-Contrast 14px Text) */}
-                      <td className={`${rowPadding} px-4`}>
+                      <td className={`${rowPadding} px-2 sm:px-4 break-words`}>
+                        <p className="md:hidden text-xs text-zinc-500 mb-2">{q.question_type} · {q.marks} marks · {q.bloom_level} · {unitObj ? `Unit ${unitObj.unit_number}` : "Unassigned"}</p>
                         {density === 'compact' ? (
                           // Compact View
                           <div className="flex items-center gap-2">
@@ -795,7 +712,7 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
                             </span>
                             {parsedOpts && (
                               <span className="text-[11px] font-mono text-zinc-500 shrink-0">
-                                [4 Options • Key: {q.correct_answer || 'A'}]
+                                [4 Options • Key: {q.correct_answer || 'Not supplied'}]
                               </span>
                             )}
                           </div>
@@ -872,16 +789,19 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
 
                       {/* Row Action Buttons */}
                       <td className={`${rowPadding} px-3 text-center`}>
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-1 flex-wrap">
+                          <button onClick={() => setReviewQuestion(q)} className="text-xs border border-zinc-400 rounded px-2 py-1 hover:bg-zinc-500/10" aria-label={`Review question ${q.id}: ${q.review_status || 'DRAFT'}`}>
+                            {(q.review_status || 'DRAFT').toLowerCase()} · Review
+                          </button>
                           <button
-                            onClick={() => handleOpenDrawer('manual', q)}
+                            aria-label={`Edit question ${q.id}`} onClick={() => handleOpenDrawer('manual', q)}
                             className="p-1 rounded text-zinc-400 hover:text-sky-500 transition-colors"
                             title="Edit Question"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => handleDelete(q.id)}
+                            aria-label={`Delete question ${q.id}`} onClick={() => handleDelete(q.id)}
                             className="p-1 rounded text-zinc-400 hover:text-rose-500 transition-colors"
                             title="Delete Question"
                           >
@@ -898,6 +818,18 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
         </div>
       </div>
 
+      <nav aria-label="Question pagination" className="flex items-center justify-between gap-3 flex-wrap text-xs">
+        <span role="status">{total === 0 ? '0 questions' : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total} questions`} · Selection applies to this page</span>
+        <div className="flex items-center gap-3">
+          <label>Per page <select aria-label="Questions per page" className={`border rounded px-2 py-1 ${inputBg}`} value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>{[25,50,100].map(size => <option key={size}>{size}</option>)}</select></label>
+          <button disabled={loading || page <= 1} onClick={() => setPage(p => p - 1)} className="border border-zinc-400 rounded px-3 py-1.5 disabled:opacity-40">Previous</button>
+          <span>Page {page} of {Math.max(1, Math.ceil(total / pageSize))}</span>
+          <button disabled={loading || page * pageSize >= total} onClick={() => setPage(p => p + 1)} className="border border-zinc-400 rounded px-3 py-1.5 disabled:opacity-40">Next</button>
+        </div>
+      </nav>
+      {deleteIds && <ConfirmDialog theme={theme} title="Delete questions" description={`Permanently delete ${deleteIds.length} question${deleteIds.length === 1 ? '' : 's'}? This cannot be undone.`} error={deleteError} busy={batchActionLoading} onCancel={() => setDeleteIds(null)} onConfirm={confirmDelete} />}
+      {reviewQuestion && <QuestionReviewPanel key={reviewQuestion.id} question={reviewQuestion} currentUser={currentUser} theme={theme} questionIds={reviewQuestion.questionIds} onClose={() => setReviewQuestion(null)} onSaved={() => { fetchQuestions(); onUpdate?.(); }} />}
+
       {/* Floating Linear/Stripe-Style Batch Action Bar */}
       {selectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-bottom-3 duration-200">
@@ -910,6 +842,11 @@ export default function QuestionBankView({ subjectId, subjectDetail, onUpdate, t
               </span>
             </div>
 
+            <button disabled={batchActionLoading} className="px-3 py-1.5 rounded border border-zinc-600 hover:bg-zinc-800" onClick={() => {
+              const selected = sortedQuestions.filter(q => selectedIds.includes(q.id));
+              if (new Set(selected.map(q => q.review_status || 'DRAFT')).size !== 1) { setNotice('Select questions with the same review status for a batch review.'); return; }
+              setReviewQuestion({ ...selected[0], questionIds: [...selectedIds] });
+            }}>Review selected</button>
             {/* Batch Assign Unit / CO */}
             <button
               onClick={() => setIsAssignModalOpen(true)}

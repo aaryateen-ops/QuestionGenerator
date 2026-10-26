@@ -351,7 +351,7 @@ def seed_database(db: Session):
         db.refresh(subject)
         seeded_subjects.append(subject)
 
-    # Always seed default institutional accounts
+    # Published sample accounts exist only in explicitly enabled demo mode.
     seed_users(db)
 
     return seeded_subjects
@@ -385,6 +385,16 @@ DEFAULT_USERS = [
 ]
 
 def seed_users(db: Session):
+    from app.core.config import settings
+    from app.core.security import verify_password
+    from app.models.access import SubjectMembership
+    if not settings.DEMO_MODE:
+        for sample in DEFAULT_USERS:
+            existing = db.query(User).filter((User.email == sample["email"]) | (User.username == sample["username"])).first()
+            if existing and verify_password(sample["password"], existing.hashed_password):
+                existing.is_active = 0
+        db.commit()
+        return
     for u in DEFAULT_USERS:
         existing = db.query(User).filter(
             (User.email == u["email"]) | (User.username == u["username"])
@@ -402,3 +412,11 @@ def seed_users(db: Session):
             db.add(user)
     db.commit()
 
+
+    for sample in DEFAULT_USERS:
+        user = db.query(User).filter(User.username == sample["username"]).first()
+        if user and user.role == "FACULTY":
+            for subject in db.query(Subject).filter(Subject.code.in_([item["subject"]["code"] for item in SUBJECTS_SEED_DATA])).all():
+                if not db.get(SubjectMembership, (user.id, subject.id)):
+                    db.add(SubjectMembership(user_id=user.id, subject_id=subject.id))
+    db.commit()

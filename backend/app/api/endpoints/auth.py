@@ -4,7 +4,10 @@ from typing import Optional, List
 from datetime import datetime
 
 from app.db.session import get_db
-from app.models.entities import User
+from app.models.entities import User, Subject
+from app.models.access import SubjectMembership
+from app.schemas.access import UserProvisionRequest, SubjectAssignmentRequest
+from app.core.config import settings
 from app.schemas.dtos import (
     UserRegisterRequest,
     UserLoginRequest,
@@ -32,7 +35,7 @@ async def get_current_user(
     """
     Dependency to validate cryptographic access token and return active User.
     """
-    if not authorization:
+    if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authorization header missing or invalid",
@@ -114,7 +117,7 @@ def register_user(req: UserRegisterRequest, db: Session = Depends(get_db)):
         username=username_clean,
         hashed_password=hashed_pw,
         full_name=req.full_name.strip(),
-        role=req.role,
+        role="FACULTY",
         department=req.department.strip() if req.department else None,
         is_active=1,
         created_at=datetime.utcnow()
@@ -257,6 +260,9 @@ def update_user_status(
             detail="Administrators cannot deactivate their own account."
         )
 
+    if user.id == admin.id and req.role is not None and req.role != "ADMIN":
+        raise HTTPException(status_code=400, detail="Administrators cannot revoke their own administrator role.")
+
     if req.role is not None:
         user.role = req.role
 
@@ -276,3 +282,35 @@ def update_user_status(
         is_active=bool(user.is_active),
         created_at=user.created_at
     )
+
+
+@router.get("/config")
+def runtime_config():
+    return {"demo_mode": settings.DEMO_MODE}
+
+@router.post("/users", response_model=UserResponse, status_code=201)
+def provision_user(req: UserProvisionRequest, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    result = register_user(req, db)
+    user = db.get(User, result.user.id)
+    user.role = req.role
+    db.commit()
+    db.refresh(user)
+    return UserResponse.model_validate(user)
+
+@router.get("/users/{user_id}/subjects", response_model=List[int])
+def get_user_subjects(user_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    if not db.get(User, user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    return [row[0] for row in db.query(SubjectMembership.subject_id).filter_by(user_id=user_id).all()]
+
+@router.put("/users/{user_id}/subjects", response_model=List[int])
+def assign_user_subjects(user_id: int, req: SubjectAssignmentRequest, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    if not db.get(User, user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    ids = sorted(set(req.subject_ids))
+    if db.query(Subject).filter(Subject.id.in_(ids)).count() != len(ids):
+        raise HTTPException(status_code=422, detail="One or more subjects do not exist")
+    db.query(SubjectMembership).filter_by(user_id=user_id).delete()
+    db.add_all([SubjectMembership(user_id=user_id, subject_id=subject_id) for subject_id in ids])
+    db.commit()
+    return ids

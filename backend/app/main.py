@@ -8,6 +8,7 @@ from app.db.session import engine, Base, SessionLocal
 from app.db.seed_data import seed_database
 from app.db.migrations import run_migrations
 from app.api.router import api_router
+from app.models.access import SubjectMembership
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")

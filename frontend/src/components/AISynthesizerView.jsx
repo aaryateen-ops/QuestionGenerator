@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Cpu, Plus, Check, Key, BookOpen, Tag, CheckCircle2,
+  Cpu, Plus, Check, Key, Tag, CheckCircle2,
   AlertCircle, Trash2, Eye, EyeOff, FileText, Upload
 } from 'lucide-react';
 import { api } from '../api/client';
+import ScanImageInput from './ScanImageInput';
+import MathHighlightedText from './MathHighlightedText';
+import SourceImagePreview from './SourceImagePreview';
 
 const BLOOM_BADGES = {
   L1: 'bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
@@ -30,6 +33,9 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
 
   // Synthesis Mode: 'concept' | 'document'
   const [synthesisMode, setSynthesisMode] = useState('concept');
+  const [scanFile, setScanFile] = useState(null);
+  const [reviewSourceFile, setReviewSourceFile] = useState(null);
+  const [scanMode, setScanMode] = useState('EXTRACT');
 
   const [topic, setTopic] = useState('Alpha-Beta Pruning and Minimax Search Trees');
   const [unitNumber, setUnitNumber] = useState(1);
@@ -42,22 +48,22 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
   // Document upload state
   const [docFile, setDocFile] = useState(null);
 
-  // Gemini API Key State & Instant Persistence
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
-  const [showKeyInput, setShowKeyInput] = useState(() => !localStorage.getItem('gemini_api_key'));
+  // The key is limited to the current tab session.
+  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('gemini_api_key') || '');
+  const [showKeyInput, setShowKeyInput] = useState(() => !sessionStorage.getItem('gemini_api_key'));
   const [showPassword, setShowPassword] = useState(false);
   const [validatingKey, setValidatingKey] = useState(false);
   const [keyStatus, setKeyStatus] = useState(() => {
-    const saved = localStorage.getItem('gemini_api_key');
+    const saved = sessionStorage.getItem('gemini_api_key');
     if (saved && saved.length > 10) {
-      return { status: 'saved', message: 'API Key stored securely in browser.' };
+      return { status: 'saved', message: 'API key kept in this tab session.' };
     }
     return null;
   });
 
   // Background auto-validation on mount if key exists
   useEffect(() => {
-    const stored = localStorage.getItem('gemini_api_key');
+    const stored = sessionStorage.getItem('gemini_api_key');
     if (stored && stored.trim().length > 10) {
       api.validateApiKey(stored.trim())
         .then((res) => {
@@ -76,16 +82,17 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
   const handleApiKeyChange = (val) => {
     setApiKey(val);
     if (val.trim()) {
-      localStorage.setItem('gemini_api_key', val.trim());
-      setKeyStatus({ status: 'saved', message: 'API Key stored locally in browser.' });
+      sessionStorage.setItem('gemini_api_key', val.trim());
+      setKeyStatus({ status: 'saved', message: 'API key kept in this tab session.' });
     } else {
-      localStorage.removeItem('gemini_api_key');
+      sessionStorage.removeItem('gemini_api_key');
       setKeyStatus(null);
     }
   };
 
   const [generating, setGenerating] = useState(false);
   const [generatedList, setGeneratedList] = useState([]);
+  const [generatedForSubject, setGeneratedForSubject] = useState(null);
   const [engineNotification, setEngineNotification] = useState(null);
   const [savedMap, setSavedMap] = useState({});
   const [error, setError] = useState(null);
@@ -97,9 +104,9 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
     : [];
 
   const handleValidateAndSaveKey = async () => {
-    const keyToValidate = apiKey.trim() || localStorage.getItem('gemini_api_key') || '';
+    const keyToValidate = apiKey.trim() || sessionStorage.getItem('gemini_api_key') || '';
     if (!keyToValidate) {
-      localStorage.removeItem('gemini_api_key');
+      sessionStorage.removeItem('gemini_api_key');
       setKeyStatus(null);
       return;
     }
@@ -108,7 +115,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
     try {
       const res = await api.validateApiKey(keyToValidate);
       if (res.valid) {
-        localStorage.setItem('gemini_api_key', keyToValidate);
+        sessionStorage.setItem('gemini_api_key', keyToValidate);
         setKeyStatus({ status: 'valid', message: res.message, model: res.model });
       } else {
         setKeyStatus({ status: 'invalid', message: res.error || 'API Key validation failed.' });
@@ -122,7 +129,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
 
   const handleClearKey = () => {
     setApiKey('');
-    localStorage.removeItem('gemini_api_key');
+    sessionStorage.removeItem('gemini_api_key');
     setKeyStatus(null);
   };
 
@@ -134,7 +141,20 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
 
     try {
       let res;
-      if (synthesisMode === 'document') {
+      if (synthesisMode === 'scan') {
+        if (!scanFile) throw new Error('Capture or upload a physical copy first.');
+        const formData = new FormData();
+        formData.append('file', scanFile);
+        formData.append('mode', scanMode);
+        if (subjectId) formData.append('subject_id', subjectId);
+        formData.append('unit_number', unitNumber);
+        formData.append('question_type', questionType);
+        formData.append('bloom_level', bloomLevel);
+        formData.append('marks', marks);
+        formData.append('count', count);
+        if (apiKey.trim()) formData.append('api_key', apiKey.trim());
+        res = await api.scanQuestionImage(formData);
+      } else if (synthesisMode === 'document') {
         if (!docFile) {
           throw new Error('Please select a lecture note, PDF, or Word document to synthesize questions from.');
         }
@@ -168,6 +188,8 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
       }
 
       setGeneratedList(res.questions || []);
+      setReviewSourceFile(synthesisMode === 'scan' ? scanFile : null);
+      setGeneratedForSubject(subjectId);
       setEngineNotification({
         engine: res.engine_used,
         geminiError: res.gemini_error,
@@ -182,6 +204,13 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
   const handleSaveQuestion = async (qItem, index) => {
     if (!subjectDetail) return;
     try {
+      if (generatedForSubject !== subjectId) throw new Error('The active course changed. Generate questions for this course before saving.');
+      if (!qItem.question_text.trim()) throw new Error('Enter a question before saving.');
+      if (qItem.question_type === 'MCQ' && !qItem.correct_answer) throw new Error('Select the correct MCQ answer before saving.');
+      if (qItem.question_type === 'MCQ') {
+        const options = typeof qItem.options === 'string' ? JSON.parse(qItem.options) : qItem.options;
+        if (!['A', 'B', 'C', 'D'].every(key => options?.[key]?.trim())) throw new Error('Complete all four MCQ options before saving.');
+      }
       const unitObj =
         subjectDetail.units?.find((u) => u.unit_number === (qItem.suggested_unit_number || unitNumber)) ||
         subjectDetail.units?.[0];
@@ -189,6 +218,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
         subjectDetail.course_outcomes?.find((c) => c.code === qItem.suggested_co_code) ||
         subjectDetail.course_outcomes?.[0];
 
+      if (!unitObj || !coObj) throw new Error('Add a syllabus unit and course outcome before saving.');
       await api.createQuestion({
         subject_id: subjectId,
         unit_id: unitObj.id,
@@ -207,7 +237,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
       setSavedMap((prev) => ({ ...prev, [index]: true }));
       if (onQuestionsAdded) onQuestionsAdded();
     } catch (err) {
-      alert('Failed to save question: ' + err.message);
+      setError('Failed to save question: ' + err.message);
     }
   };
 
@@ -279,7 +309,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
                 Google Gemini API Key Configuration
               </h3>
               <p className="text-[11px] text-zinc-500">
-                Provide your Gemini API key (free tier supported) to unlock real-time LLM question generation.
+                Your Gemini API key is kept in this tab session and sent to the server for generation. Clear it here or close the tab to remove it.
               </p>
             </div>
             {apiKey && (
@@ -373,7 +403,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
           )}
 
           <p className="text-[11px] text-zinc-500">
-            Note: If left unconfigured, the system automatically falls back to the built-in deep procedural Academic Scenario Generator (zero cost, zero failure).
+                  Topic and document synthesis can use the built-in academic generator. Physical copy scanning requires a Gemini API key and never substitutes generated content for a failed scan.
           </p>
         </div>
       )}
@@ -421,10 +451,27 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
                 <FileText className="w-3.5 h-3.5" />
                 From Notes / PDF
               </button>
+              <button type="button" onClick={() => setSynthesisMode('scan')}
+                aria-pressed={synthesisMode === 'scan'}
+                className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold ${synthesisMode === 'scan' ? (isDark ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-900') : 'text-zinc-500'}`}>
+                Scan Physical Copy
+              </button>
             </div>
 
             {/* Mode 1: Topic Input */}
-            {synthesisMode === 'concept' ? (
+            {synthesisMode === 'scan' ? (
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold">Scan action
+                  <select value={scanMode} onChange={event => setScanMode(event.target.value)} disabled={generating}
+                    className={`block w-full mt-1 p-2 border rounded ${inputBg}`}>
+                    <option value="EXTRACT">Extract questions from photo</option>
+                    <option value="SYNTHESIZE">Generate new similar questions</option>
+                  </select>
+                </label>
+                <ScanImageInput file={scanFile} onChange={setScanFile} theme={theme} disabled={generating} />
+                <p className="text-xs">Review every symbol before saving. If marks are absent, the selected marks apply. Extraction keeps all readable questions.</p>
+              </div>
+            ) : synthesisMode === 'concept' ? (
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-zinc-500 mb-1">
@@ -637,7 +684,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
 
             <button
               onClick={handleSynthesize}
-              disabled={generating || (synthesisMode === 'concept' ? !topic.trim() : !docFile)}
+              disabled={generating || (synthesisMode === 'concept' ? !topic.trim() : synthesisMode === 'scan' ? !scanFile : !docFile)}
               className={`w-full flex items-center justify-center gap-2 py-3 text-xs font-bold rounded-md shadow-xs transition-colors ${
                 isDark
                   ? 'bg-zinc-100 text-zinc-950 hover:bg-white disabled:opacity-50 font-bold'
@@ -647,12 +694,12 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
               {generating ? (
                 <>
                   <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  Synthesizing with {isGeminiConnected ? 'Google Gemini' : 'Procedural Engine'}...
+                  {synthesisMode === 'scan' ? 'Scanning with Google Gemini…' : `Synthesizing with ${isGeminiConnected ? 'Google Gemini' : 'Procedural Engine'}...`}
                 </>
               ) : (
                 <>
                   <Cpu className="w-4 h-4" />
-                  Synthesize {count} {questionType} Question{count > 1 ? 's' : ''}
+                  {synthesisMode === 'scan' && scanMode === 'EXTRACT' ? 'Extract questions from photo' : `Synthesize ${count} ${questionType} Question${count > 1 ? 's' : ''}`}
                 </>
               )}
             </button>
@@ -673,7 +720,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
                 }`}
               >
                 <Plus className="w-3.5 h-3.5" />
-                Save All to Master Bank
+                Save all as drafts
               </button>
             )}
           </div>
@@ -695,9 +742,10 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                 <span>
                   Engine: <strong>{engineNotification.engine}</strong>
+                  {!String(engineNotification.engine || '').toLowerCase().includes('gemini') && <span className="block mt-1">Template based draft · Not AI verified. Review technical accuracy, syllabus alignment, and answers.</span>}
                   {engineNotification.geminiError && (
                     <span className="block text-[11px] text-amber-500 mt-0.5">
-                      Notice: {engineNotification.geminiError}. Procedural engine took over seamlessly.
+                      Notice: {engineNotification.geminiError}. Template based output was used. This is not AI verified; check technical accuracy before saving.
                     </span>
                   )}
                 </span>
@@ -714,13 +762,15 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className={reviewSourceFile ? "grid xl:grid-cols-2 gap-4 items-start" : "space-y-3"}>
+              {reviewSourceFile && <aside className="xl:sticky xl:top-4"><SourceImagePreview file={reviewSourceFile} theme={theme} /></aside>}
+              <div className="space-y-3">
               {generatedList.map((item, idx) => {
                 let parsedOpts = null;
                 if ((item.question_type === 'MCQ' || questionType === 'MCQ') && item.options) {
                   try {
                     parsedOpts = typeof item.options === 'string' ? JSON.parse(item.options) : item.options;
-                  } catch (e) {
+                  } catch {
                     parsedOpts = null;
                   }
                 }
@@ -766,9 +816,25 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
                       </span>
                     </div>
 
-                    <p className="text-xs font-normal leading-relaxed">
-                      {item.question_text}
-                    </p>
+                    <label className="block text-xs font-semibold">Question text
+                      <textarea value={item.question_text} disabled={savedMap[idx]} rows={3}
+                        aria-label={`Edit question ${idx + 1}`}
+                        onChange={event => setGeneratedList(previous => previous.map((question, index) => index === idx ? { ...question, question_text: event.target.value } : question))}
+                        className={`mt-1 w-full p-2 border rounded text-sm ${inputBg}`} />
+                    </label>
+                    <div className="text-sm leading-relaxed" aria-label="Math preview">
+                      <MathHighlightedText text={item.question_text} isDark={isDark} />
+                    </div>
+                    {item.question_type === 'MCQ' && (
+                      <label className="block text-xs">Correct answer (confirm before saving)
+                        <select value={item.correct_answer || ''} disabled={savedMap[idx]}
+                          onChange={event => setGeneratedList(previous => previous.map((question, index) => index === idx ? { ...question, correct_answer: event.target.value || null } : question))}
+                          className={`ml-2 border rounded p-1 ${inputBg}`}>
+                          <option value="">Not supplied</option>
+                          {['A', 'B', 'C', 'D'].map(key => <option key={key} value={key}>{key}</option>)}
+                        </select>
+                      </label>
+                    )}
 
                     {/* MCQ Options Display */}
                     {parsedOpts && (
@@ -776,11 +842,11 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
                         {['A', 'B', 'C', 'D'].map((key) => {
                           const isCorrect = item.correct_answer === key;
                           const text = parsedOpts[key];
-                          if (!text) return null;
+                          if (text === undefined || text === null) return null;
                           return (
-                            <div
+                            <label
                               key={key}
-                              className={`text-[11px] px-2.5 py-1 rounded border flex items-center gap-1.5 font-mono ${
+                              className={`text-[11px] px-2.5 py-1 rounded border space-y-1 ${
                                 isCorrect
                                   ? isDark
                                     ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 font-semibold'
@@ -791,13 +857,17 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
                               }`}
                             >
                               <span className={`font-bold w-4 ${isCorrect ? 'text-emerald-500' : 'text-zinc-500'}`}>{key}.</span>
-                              <span className="flex-1 truncate">{text}</span>
+                              <input value={text} disabled={savedMap[idx]} aria-label={`Question ${idx + 1} option ${key}`}
+                                onChange={event => setGeneratedList(previous => previous.map((question, index) => index === idx
+                                  ? { ...question, options: JSON.stringify({ ...parsedOpts, [key]: event.target.value }) } : question))}
+                                className={`w-full rounded border p-1 text-xs ${inputBg}`} />
+                              <span className="block"><MathHighlightedText text={text} isDark={isDark} /></span>
                               {isCorrect && (
                                 <span className="text-[9px] uppercase px-1 py-0.2 rounded font-bold bg-emerald-500 text-zinc-950">
                                   Correct
                                 </span>
                               )}
-                            </div>
+                            </label>
                           );
                         })}
                       </div>
@@ -805,7 +875,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
 
                     <div className={`pt-2 border-t ${isDark ? 'border-zinc-800' : 'border-zinc-200'} flex items-center justify-between`}>
                       <span className="text-[11px] text-zinc-500 font-mono">
-                        Action Verb: <strong>{item.action_verb}</strong> ({Math.round(item.confidence_score * 100)}% Conf)
+                        Action verb: <strong>{item.action_verb || 'Not classified'}</strong>{Number.isFinite(item.confidence_score) ? ` · ${Math.round(item.confidence_score * 100)}% classifier confidence` : ''}
                       </span>
 
                       <button
@@ -822,12 +892,12 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
                         {savedMap[idx] ? (
                           <>
                             <Check className="w-3.5 h-3.5" />
-                            Saved to Bank
+                            Saved as draft
                           </>
                         ) : (
                           <>
                             <Plus className="w-3.5 h-3.5" />
-                            Add to Bank
+                            Save as draft
                           </>
                         )}
                       </button>
@@ -835,6 +905,7 @@ export default function AISynthesizerView({ subjectId, subjectDetail, onQuestion
                   </div>
                 );
               })}
+              </div>
             </div>
           )}
         </div>

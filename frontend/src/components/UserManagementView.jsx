@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, User, UserPlus, CheckCircle2, AlertCircle, RefreshCw, Lock, Mail, Building, Check, X, ShieldAlert } from 'lucide-react';
 import { api } from '../api/client';
+import SubjectAssignments from './SubjectAssignments';
 
 export default function UserManagementView({ currentUser, theme }) {
   const isDark = theme === 'dark';
@@ -11,6 +12,7 @@ export default function UserManagementView({ currentUser, theme }) {
     : 'bg-white border-zinc-300 text-zinc-900 placeholder-zinc-400 focus:border-zinc-500';
 
   const [users, setUsers] = useState([]);
+  const [assignmentUser, setAssignmentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -77,7 +79,7 @@ export default function UserManagementView({ currentUser, theme }) {
     setCreating(true);
     setError(null);
     try {
-      await api.register({
+      await api.createUser({
         full_name: newFullName,
         email: newEmail,
         username: newUsername,
@@ -276,6 +278,7 @@ export default function UserManagementView({ currentUser, theme }) {
 
                     <td className="p-3 pr-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        <button onClick={() => setAssignmentUser(u)} className="text-[10px] px-2 py-1 border border-zinc-500 rounded">Assign courses</button>
                         <button
                           onClick={() => handleToggleRole(u)}
                           disabled={isCurrent}
@@ -313,6 +316,8 @@ export default function UserManagementView({ currentUser, theme }) {
           </table>
         </div>
       </div>
+
+      {assignmentUser && <SubjectAssignments user={assignmentUser} theme={theme} onClose={() => setAssignmentUser(null)} />}
 
       {/* Add User Modal */}
       {showAddModal && (

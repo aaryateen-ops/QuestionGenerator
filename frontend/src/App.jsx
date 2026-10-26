@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import DashboardView from './components/DashboardView';
 import NLPInspectorView from './components/NLPInspectorView';
@@ -50,14 +50,10 @@ function MainAppContent() {
     return localStorage.getItem('qp_theme') || 'dark';
   });
 
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('qp_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState(null);
+  const [demoMode, setDemoMode] = useState(false);
+  const accountGeneration = useRef(0);
+  const subjectGeneration = useRef(0);
 
   const [institutionConfig, setInstitutionConfig] = useState(() => {
     try {
@@ -123,45 +119,45 @@ function MainAppContent() {
     initApp();
   }, []);
 
+  const clearAccountContext = () => {
+    sessionStorage.removeItem('gemini_api_key');
+    localStorage.removeItem('gemini_api_key');
+    accountGeneration.current += 1;
+    subjectGeneration.current += 1;
+    setSubjects([]);
+    setActiveSubjectId(null);
+    setSubjectDetail(null);
+    setStats(null);
+    setCurrentPaper(null);
+    setActiveTab('dashboard');
+  };
+
   const initApp = async () => {
     setLoading(true);
     setConnectionError(null);
     try {
-      // 1. Verify or establish user authentication
-      const token = localStorage.getItem('qp_token');
-      if (token) {
+      const config = await api.getRuntimeConfig();
+      setDemoMode(Boolean(config.demo_mode));
+      if (localStorage.getItem('qp_token')) {
         try {
           const profile = await api.getMe();
           setCurrentUser(profile);
           localStorage.setItem('qp_user', JSON.stringify(profile));
+          await loadInitialData();
         } catch {
-          await autoLoginDefaultFaculty();
+          localStorage.removeItem('qp_token');
+          localStorage.removeItem('qp_user');
+          setCurrentUser(null);
+          clearAccountContext();
+          setIsAuthModalOpen(true);
         }
       } else {
-        await autoLoginDefaultFaculty();
+        setIsAuthModalOpen(true);
       }
-
-      // 2. Load subjects
-      await loadInitialData();
     } catch (err) {
-      console.error('Failed to initialize application:', err);
-      setConnectionError(
-        'Unable to connect to the Examination Engine backend (http://127.0.0.1:8000). Please ensure the backend server is running.'
-      );
-      showToast('Backend connection failed', 'error');
+      setConnectionError('Unable to connect to the Examination Engine backend. Please ensure the backend server is running.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const autoLoginDefaultFaculty = async () => {
-    try {
-      const res = await api.login({ username_or_email: 'faculty', password: 'faculty123' });
-      localStorage.setItem('qp_token', res.access_token);
-      localStorage.setItem('qp_user', JSON.stringify(res.user));
-      setCurrentUser(res.user);
-    } catch (e) {
-      console.warn('Default auto-login failed:', e);
     }
   };
 
@@ -173,9 +169,11 @@ function MainAppContent() {
   }, [activeSubjectId]);
 
   const loadInitialData = async () => {
+    const generation = accountGeneration.current;
     setConnectionError(null);
     try {
       const subs = await api.getSubjects();
+      if (generation !== accountGeneration.current) return;
       setSubjects(subs);
       if (subs && subs.length > 0) {
         setActiveSubjectId(subs[0].id);
@@ -189,17 +187,23 @@ function MainAppContent() {
   };
 
   const loadSubjectContext = async (subjectId) => {
+    const generation = ++subjectGeneration.current;
+    const account = accountGeneration.current;
+    setSubjectDetail(null); setStats(null); setCurrentPaper(null);
     try {
       const [detail, repoStats, papers] = await Promise.all([
         api.getSubjectDetail(subjectId),
         api.getRepositoryStats(subjectId),
         api.listPapers(),
       ]);
+      if (generation !== subjectGeneration.current || account !== accountGeneration.current) return;
       setSubjectDetail(detail);
       setStats(repoStats);
 
-      if (papers && papers.length > 0) {
-        const latest = await api.getPaper(papers[0].id);
+      const subjectPapers = papers?.filter(paper => paper.subject_id === subjectId || paper.subject_code === detail.code);
+      if (subjectPapers?.length > 0) {
+        const latest = await api.getPaper(subjectPapers[0].id);
+        if (generation !== subjectGeneration.current || account !== accountGeneration.current) return;
         setCurrentPaper(latest);
       }
     } catch (err) {
@@ -346,6 +350,7 @@ function MainAppContent() {
 
           {/* Topbar Center: Quick Command Palette Trigger */}
           <div className="flex items-center gap-2">
+            {demoMode && <span className="hidden lg:inline text-xs border border-amber-500/60 rounded px-2 py-1">Local demo</span>}
             <button
               onClick={() => setIsCommandPaletteOpen(true)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer ${
@@ -442,7 +447,14 @@ function MainAppContent() {
         )}
 
         {/* View Routing */}
-        <main className="p-4 sm:px-6 lg:px-8 flex-1">
+        <main key={currentUser?.id || "signed-out"} className="p-4 sm:px-6 lg:px-8 flex-1">
+          {!currentUser && <p className="text-sm text-zinc-500">Sign in to access your assigned courses.</p>}
+          {currentUser && subjects.length === 0 && <div className={`border rounded-lg p-5 mb-4 ${isDark ? 'border-zinc-700' : 'border-zinc-300'}`}>
+            <h3 className="text-base font-semibold">{currentUser.role === 'ADMIN' ? 'Add your first course' : 'No courses assigned yet'}</h3>
+            <p className="text-sm mt-2">{currentUser.role === 'ADMIN' ? 'Configure a course, syllabus units and outcomes to begin building the repository.' : 'Ask an administrator to assign your courses under Faculty & Users. Your account is active.'}</p>
+            {currentUser.role === 'ADMIN' && <button className="mt-3 text-sm underline" onClick={() => setActiveTab('subjects')}>Configure courses</button>}
+          </div>}
+          {currentUser && <>
           {activeTab === 'dashboard' && (
             <DashboardView
               stats={stats}
@@ -493,6 +505,7 @@ function MainAppContent() {
 
           {activeTab === 'questions' && (
             <QuestionBankView
+              currentUser={currentUser}
               subjectId={activeSubjectId}
               subjectDetail={subjectDetail}
               onUpdate={handleQuestionChange}
@@ -527,6 +540,7 @@ function MainAppContent() {
               onOpenInstitutionModal={() => setIsInstitutionModalOpen(true)}
             />
           )}
+          </>}
         </main>
 
         <footer
@@ -557,10 +571,13 @@ function MainAppContent() {
       {/* Authentication Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
+        demoMode={demoMode}
         onClose={() => setIsAuthModalOpen(false)}
         onAuthSuccess={(user) => {
+          clearAccountContext();
           setCurrentUser(user);
           setIsAuthModalOpen(false);
+          loadInitialData();
           showToast(`Signed in as ${user.full_name}`, 'success');
         }}
         theme={theme}

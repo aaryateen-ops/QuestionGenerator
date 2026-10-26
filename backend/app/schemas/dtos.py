@@ -96,11 +96,11 @@ class QuestionCreate(QuestionBase):
     confidence_score: Optional[float] = 1.0
 
 class QuestionUpdate(BaseModel):
-    question_text: Optional[str] = None
-    marks: Optional[int] = None
-    bloom_level: Optional[str] = None
-    difficulty: Optional[str] = None
-    question_type: Optional[str] = None
+    question_text: Optional[str] = Field(None, min_length=5, max_length=20000)
+    marks: Optional[int] = Field(None, ge=1, le=30)
+    bloom_level: Optional[str] = Field(None, pattern='^L[1-6]$')
+    difficulty: Optional[str] = Field(None, pattern='^(EASY|MEDIUM|HARD)$')
+    question_type: Optional[str] = Field(None, pattern='^(MCQ|SHORT|LONG)$')
     options: Optional[str] = None
     correct_answer: Optional[str] = None
     unit_id: Optional[int] = None
@@ -112,15 +112,16 @@ class QuestionResponse(QuestionBase):
     confidence_score: float
     usage_count: int
     created_at: datetime
+    review_status: str = 'DRAFT'
     model_config = ConfigDict(from_attributes=True)
 
 
 class BatchDeleteRequest(BaseModel):
-    question_ids: List[int]
+    question_ids: List[int] = Field(max_length=100)
 
 
 class BatchAssignRequest(BaseModel):
-    question_ids: List[int]
+    question_ids: List[int] = Field(max_length=100)
     unit_id: Optional[int] = None
     co_id: Optional[int] = None
 
@@ -152,13 +153,13 @@ class NLPClassifyResponse(BaseModel):
 
 
 class BulkImportItem(BaseModel):
-    question_text: str
-    marks: int
-    unit_number: int
+    question_text: str = Field(min_length=5, max_length=20000)
+    marks: int = Field(ge=1, le=30)
+    unit_number: int = Field(ge=1, le=10)
     co_code: Optional[str] = None
-    bloom_level: Optional[str] = None
-    difficulty: Optional[str] = "MEDIUM"
-    question_type: Optional[str] = "SHORT"
+    bloom_level: Optional[str] = Field(None, pattern='^L[1-6]$')
+    difficulty: Optional[str] = Field('MEDIUM', pattern='^(EASY|MEDIUM|HARD)$')
+    question_type: Optional[str] = Field('SHORT', pattern='^(MCQ|SHORT|LONG)$')
     options: Optional[str] = None
     correct_answer: Optional[str] = None
 

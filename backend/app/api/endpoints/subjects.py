@@ -2,21 +2,29 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from typing import List
 from app.db.session import get_db
-from app.models.entities import Subject, SyllabusUnit, CourseOutcome, Question
+from app.models.entities import Subject, SyllabusUnit, CourseOutcome, Question, User
 from app.schemas.dtos import (
     SubjectResponse, SubjectDetailResponse, SubjectCreate, SubjectUpdate,
     UnitResponse, UnitCreate, UnitUpdate, COResponse, COCreate, COUpdate
 )
+from app.api.endpoints.auth import get_current_user, require_admin
+from app.services.access import accessible_subject_ids, require_subject_access
+from app.models.access import SubjectMembership
 from app.core.errors import NotFoundException, ValidationException
 
 router = APIRouter(prefix="/subjects", tags=["Subjects & Syllabus"])
 
 @router.get("", response_model=List[SubjectResponse])
-def list_subjects(db: Session = Depends(get_db)):
-    return db.query(Subject).order_by(Subject.code).all()
+def list_subjects(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    query = db.query(Subject)
+    allowed = accessible_subject_ids(db, user)
+    if allowed is not None:
+        query = query.filter(Subject.id.in_(allowed))
+    return query.order_by(Subject.code).all()
 
 @router.get("/{subject_id}", response_model=SubjectDetailResponse)
-def get_subject_detail(subject_id: int, db: Session = Depends(get_db)):
+def get_subject_detail(subject_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    require_subject_access(db, user, subject_id)
     subject = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subject:
         raise NotFoundException("Subject", subject_id)
@@ -35,7 +43,7 @@ def get_subject_detail(subject_id: int, db: Session = Depends(get_db)):
         question_count=q_count
     )
 
-@router.post("", response_model=SubjectResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=SubjectResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 def create_subject(payload: SubjectCreate, db: Session = Depends(get_db)):
     existing = db.query(Subject).filter(Subject.code == payload.code.upper()).first()
     if existing:
@@ -53,7 +61,7 @@ def create_subject(payload: SubjectCreate, db: Session = Depends(get_db)):
     db.refresh(subj)
     return subj
 
-@router.put("/{subject_id}", response_model=SubjectResponse)
+@router.put("/{subject_id}", response_model=SubjectResponse, dependencies=[Depends(require_admin)])
 def update_subject(subject_id: int, payload: SubjectUpdate, db: Session = Depends(get_db)):
     subj = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subj:
@@ -72,16 +80,17 @@ def update_subject(subject_id: int, payload: SubjectUpdate, db: Session = Depend
     db.refresh(subj)
     return subj
 
-@router.delete("/{subject_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{subject_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
 def delete_subject(subject_id: int, db: Session = Depends(get_db)):
     subj = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subj:
         raise NotFoundException("Subject", subject_id)
+    db.query(SubjectMembership).filter_by(subject_id=subject_id).delete()
     db.delete(subj)
     db.commit()
     return None
 
-@router.post("/{subject_id}/units", response_model=UnitResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{subject_id}/units", response_model=UnitResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 def add_unit(subject_id: int, payload: UnitCreate, db: Session = Depends(get_db)):
     subj = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subj:
@@ -106,7 +115,7 @@ def add_unit(subject_id: int, payload: UnitCreate, db: Session = Depends(get_db)
     db.refresh(unit)
     return unit
 
-@router.put("/{subject_id}/units/{unit_id}", response_model=UnitResponse)
+@router.put("/{subject_id}/units/{unit_id}", response_model=UnitResponse, dependencies=[Depends(require_admin)])
 def update_unit(subject_id: int, unit_id: int, payload: UnitUpdate, db: Session = Depends(get_db)):
     unit = db.query(SyllabusUnit).filter(
         SyllabusUnit.id == unit_id,
@@ -126,7 +135,7 @@ def update_unit(subject_id: int, unit_id: int, payload: UnitUpdate, db: Session 
     db.refresh(unit)
     return unit
 
-@router.delete("/{subject_id}/units/{unit_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{subject_id}/units/{unit_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
 def delete_unit(subject_id: int, unit_id: int, db: Session = Depends(get_db)):
     unit = db.query(SyllabusUnit).filter(
         SyllabusUnit.id == unit_id,
@@ -138,7 +147,7 @@ def delete_unit(subject_id: int, unit_id: int, db: Session = Depends(get_db)):
     db.commit()
     return None
 
-@router.post("/{subject_id}/cos", response_model=COResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{subject_id}/cos", response_model=COResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 def add_course_outcome(subject_id: int, payload: COCreate, db: Session = Depends(get_db)):
     subj = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subj:
@@ -155,7 +164,7 @@ def add_course_outcome(subject_id: int, payload: COCreate, db: Session = Depends
     db.refresh(co)
     return co
 
-@router.put("/{subject_id}/cos/{co_id}", response_model=COResponse)
+@router.put("/{subject_id}/cos/{co_id}", response_model=COResponse, dependencies=[Depends(require_admin)])
 def update_course_outcome(subject_id: int, co_id: int, payload: COUpdate, db: Session = Depends(get_db)):
     co = db.query(CourseOutcome).filter(
         CourseOutcome.id == co_id,
@@ -173,7 +182,7 @@ def update_course_outcome(subject_id: int, co_id: int, payload: COUpdate, db: Se
     db.refresh(co)
     return co
 
-@router.delete("/{subject_id}/cos/{co_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{subject_id}/cos/{co_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
 def delete_course_outcome(subject_id: int, co_id: int, db: Session = Depends(get_db)):
     co = db.query(CourseOutcome).filter(
         CourseOutcome.id == co_id,

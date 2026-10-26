@@ -5,12 +5,12 @@ async function request(endpoint, options = {}) {
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
   const config = {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders,
       ...options.headers,
     },
-    ...options,
   };
 
   const response = await fetch(`${API_BASE}${endpoint}`, config);
@@ -19,9 +19,15 @@ async function request(endpoint, options = {}) {
     return null;
   }
 
-  const data = await response.json();
+  let data;
+  try { data = await response.json(); }
+  catch { throw new Error('The server returned an unreadable response. Check the connection and retry.'); }
   if (!response.ok) {
-    throw new Error(data.detail || data.message || 'API request failed');
+    const detail = typeof data.detail === 'string' ? data.detail : null;
+    const error = new Error(data.message || detail || 'Check your input and try again.');
+    error.status = response.status;
+    error.code = data.error_code;
+    throw error;
   }
   return data;
 }
@@ -32,6 +38,10 @@ export const api = {
   register: (payload) => request('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
   getMe: () => request('/auth/me'),
   getUsers: () => request('/auth/users'),
+  getRuntimeConfig: () => request('/auth/config'),
+  createUser: payload => request('/auth/users', { method: 'POST', body: JSON.stringify(payload) }),
+  getUserSubjects: userId => request(`/auth/users/${userId}/subjects`),
+  setUserSubjects: (userId, subjectIds) => request(`/auth/users/${userId}/subjects`, { method: 'PUT', body: JSON.stringify({ subject_ids: subjectIds }) }),
   updateUserStatus: (userId, payload) =>
     request(`/auth/users/${userId}/status`, { method: 'PUT', body: JSON.stringify(payload) }),
 
@@ -49,6 +59,15 @@ export const api = {
   deleteCO: (subjectId, coId) => request(`/subjects/${subjectId}/cos/${coId}`, { method: 'DELETE' }),
 
   // Question Bank
+  getQuestionPage: (params = {}, signal) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') query.set(key, value); });
+    return request(`/questions/page?${query}`, { signal });
+  },
+  getQuestionHistory: questionId => request(`/questions/${questionId}/history`),
+  reviewQuestion: (questionId, payload) => request(`/questions/${questionId}/review`, { method: 'POST', body: JSON.stringify(payload) }),
+  batchReviewQuestions: (questionIds, payload) => request('/questions/batch-review', { method: 'POST', body: JSON.stringify({ question_ids: questionIds, ...payload }) }),
+  checkQuestionDuplicates: payload => request('/questions/check-duplicates', { method: 'POST', body: JSON.stringify(payload) }),
   getQuestions: (params = {}) => {
     const query = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
@@ -109,12 +128,45 @@ export const api = {
     if (!res.ok) throw new Error(data.detail || data.message || 'Document question synthesis failed');
     return data;
   },
+  scanQuestionImage: async (formData, signal) => {
+    const token = localStorage.getItem('qp_token');
+    const res = await fetch(`${API_BASE}/nlp/scan-image`, {
+      method: 'POST', body: formData, signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    let data;
+    try { data = await res.json(); }
+    catch { throw new Error('Image scanning returned an invalid response. Please try again.'); }
+    if (!res.ok) {
+      const detail = typeof data.detail === 'string' ? data.detail : null;
+      throw new Error(data.message || detail || 'Image scanning failed. Check your photo and scan settings.');
+    }
+    return data;
+  },
 
   // Paper Generator & PDF Export
   listPapers: () => request('/papers'),
   getPaper: (id) => request(`/papers/${id}`),
+  getPaperQuality: id => request(`/papers/${id}/quality`),
   generatePaper: (payload) => request('/papers/generate', { method: 'POST', body: JSON.stringify(payload) }),
   getSwapCandidates: (paperId, questionId) => request(`/papers/${paperId}/swap-candidates/${questionId}`),
   swapQuestion: (payload) => request('/papers/swap', { method: 'POST', body: JSON.stringify(payload) }),
   getDownloadPdfUrl: (paperId) => `${API_BASE}/papers/${paperId}/download-pdf`,
+  downloadPaperPdf: async (paperId, paperCode) => {
+    const token = localStorage.getItem('qp_token');
+    const response = await fetch(`${API_BASE}/papers/${paperId}/download-pdf`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || data.detail || 'Unable to download this examination paper.');
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${(paperCode || 'Examination').replace(/[^a-z0-9_-]/gi, '_')}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
 };

@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import useDialogFocus from '../hooks/useDialogFocus';
 import { Shield, User, Lock, Mail, Building, CheckCircle2, AlertCircle, X, KeyRound, ArrowRight } from 'lucide-react';
 import { api } from '../api/client';
 
-export default function AuthModal({ isOpen, onClose, onAuthSuccess, theme, canClose = true }) {
+export default function AuthModal({ isOpen, onClose, onAuthSuccess, theme, canClose = true, demoMode = false }) {
+  const dialog = useRef(null);
+  useDialogFocus(dialog, isOpen, onClose, canClose);
   const isDark = theme === 'dark';
   const cardBg = isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900 shadow-xl';
   const subBg = isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-zinc-50 border-zinc-200 text-zinc-900';
@@ -22,7 +25,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, theme, canCl
   const [regUsername, setRegUsername] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regDept, setRegDept] = useState('Computer Science & Engineering');
-  const [regRole, setRegRole] = useState('FACULTY');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -84,7 +86,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, theme, canCl
         username: regUsername,
         password: regPassword,
         full_name: regFullName,
-        role: regRole,
+        role: 'FACULTY',
         department: regDept,
       });
       localStorage.setItem('qp_token', res.access_token);
@@ -103,7 +105,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, theme, canCl
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className={`${cardBg} border rounded-xl w-full max-w-lg p-6 space-y-5 shadow-2xl relative`}>
+      <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="auth-title" className={`${cardBg} border rounded-xl w-full max-w-lg max-h-[90vh] overflow-auto p-6 space-y-5 shadow-2xl relative`}>
         {/* Header */}
         <div className="flex items-start justify-between">
           <div className="space-y-1">
@@ -111,7 +113,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, theme, canCl
               <div className={`p-1.5 rounded-md ${isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-zinc-100 text-zinc-900'}`}>
                 <KeyRound className="w-4 h-4" />
               </div>
-              <h2 className="text-base font-bold tracking-tight">Institutional User Access</h2>
+              <h2 id="auth-title" className="text-base font-bold tracking-tight">Institutional User Access</h2>
             </div>
             <p className="text-xs text-zinc-500">
               Role-Based Access Control (RBAC) • Exam Controller & Faculty Workspace
@@ -129,7 +131,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, theme, canCl
         </div>
 
         {/* Quick Demo Login Preset Bar */}
-        <div className={`${subBg} p-3 rounded-lg border space-y-2`}>
+        {demoMode && <div className={`${subBg} p-3 rounded-lg border space-y-2`}>
           <div className="flex items-center justify-between text-[11px]">
             <span className="font-bold text-zinc-400 uppercase tracking-wider text-[10px]">
               Instant Demo Access (1-Click)
@@ -180,6 +182,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, theme, canCl
           </div>
         </div>
 
+        }
         {/* Tab Toggle: Sign In vs Register */}
         <div className={`flex rounded-lg p-1 border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-100 border-zinc-200'}`}>
           <button
@@ -341,14 +344,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, theme, canCl
                 <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
                   Institutional Role
                 </label>
-                <select
-                  value={regRole}
-                  onChange={(e) => setRegRole(e.target.value)}
-                  className={`w-full rounded-md py-2 px-3 text-xs border focus:outline-none ${inputBg}`}
-                >
-                  <option value="FACULTY">Faculty Member</option>
-                  <option value="ADMIN">Academic Administrator</option>
-                </select>
+                <p className="text-xs py-2 text-zinc-500">Faculty · courses assigned by an administrator</p>
               </div>
             </div>
 

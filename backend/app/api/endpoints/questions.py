@@ -2,7 +2,13 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.db.session import get_db
-from app.models.entities import Question, Subject, SyllabusUnit, CourseOutcome
+from app.models.entities import Question, Subject, SyllabusUnit, CourseOutcome, User
+from app.api.endpoints.auth import get_current_user
+from app.api.endpoints.question_reviews import router as review_router, authorized_question
+from app.services.access import accessible_subject_ids, require_subject_access
+from app.services.question_review import (commit_questions, ensure_unique, fingerprint, record_event,
+                                         validate_content, validate_mapping, question_values)
+from app.services.question_review import preserve_legacy_snapshot
 from app.schemas.dtos import (
     QuestionResponse, QuestionCreate, QuestionUpdate,
     BulkImportRequest, BulkImportResponse,
@@ -13,6 +19,7 @@ from app.engine.co_mapper import CourseOutcomeMapper
 from app.core.errors import NotFoundException, ValidationException
 
 router = APIRouter(prefix="/questions", tags=["Question Bank Repository"])
+router.include_router(review_router)
 
 @router.get("", response_model=List[QuestionResponse])
 def get_questions(
@@ -23,10 +30,15 @@ def get_questions(
     question_type: Optional[str] = Query(None),
     marks: Optional[int] = Query(None),
     search: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     query = db.query(Question)
+    allowed_ids = accessible_subject_ids(db, user)
+    if allowed_ids is not None:
+        query = query.filter(Question.subject_id.in_(allowed_ids))
     if subject_id:
+        require_subject_access(db, user, subject_id)
         query = query.filter(Question.subject_id == subject_id)
     if unit_id:
         query = query.filter(Question.unit_id == unit_id)
@@ -44,7 +56,10 @@ def get_questions(
     return query.order_by(Question.unit_id, Question.marks, Question.id).all()
 
 @router.post("", response_model=QuestionResponse, status_code=status.HTTP_201_CREATED)
-def create_question(payload: QuestionCreate, db: Session = Depends(get_db)):
+def create_question(payload: QuestionCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    require_subject_access(db, user, payload.subject_id)
+    clean = validate_content(payload.model_dump())
+    ensure_unique(db, payload.subject_id, clean['question_text'])
     subj = db.query(Subject).filter(Subject.id == payload.subject_id).first()
     if not subj:
         raise NotFoundException("Subject", payload.subject_id)
@@ -60,8 +75,8 @@ def create_question(payload: QuestionCreate, db: Session = Depends(get_db)):
     # Automatically run NLP classifier if verb/confidence not provided
     nlp_res = BloomClassifierEngine.classify(payload.question_text)
     assigned_bloom = payload.bloom_level if payload.bloom_level else nlp_res["predicted_bloom_level"]
-    action_verb = payload.action_verb if payload.action_verb else nlp_res["primary_verb"]
-    confidence = payload.confidence_score if payload.confidence_score else nlp_res["confidence_score"]
+    action_verb = nlp_res['primary_verb']
+    confidence = nlp_res['confidence_score']
 
     # Determine question type if not explicitly set
     q_type = payload.question_type.upper() if payload.question_type else ("MCQ" if payload.options else ("SHORT" if payload.marks <= 5 else "LONG"))
@@ -70,77 +85,74 @@ def create_question(payload: QuestionCreate, db: Session = Depends(get_db)):
         subject_id=payload.subject_id,
         unit_id=payload.unit_id,
         co_id=payload.co_id,
-        question_text=payload.question_text.strip(),
+        question_text=clean['question_text'],
         marks=payload.marks,
         bloom_level=assigned_bloom,
         difficulty=payload.difficulty.upper(),
         question_type=q_type,
-        options=payload.options,
-        correct_answer=payload.correct_answer,
+        options=clean['options'],
+        correct_answer=clean['correct_answer'],
+        review_status='DRAFT',
+        text_fingerprint=fingerprint(clean['question_text']),
         action_verb=action_verb,
         confidence_score=confidence,
         usage_count=0
     )
     db.add(question)
-    db.commit()
+    record_event(db, question, user, 'CREATED', 'Question saved as a draft.')
+    commit_questions(db)
     db.refresh(question)
     return question
 
 @router.put("/{question_id}", response_model=QuestionResponse)
-def update_question(question_id: int, payload: QuestionUpdate, db: Session = Depends(get_db)):
-    q = db.query(Question).filter(Question.id == question_id).first()
-    if not q:
-        raise NotFoundException("Question", question_id)
-
-    if payload.question_text is not None:
-        q.question_text = payload.question_text.strip()
-        # Re-run NLP analysis
-        nlp_res = BloomClassifierEngine.classify(q.question_text)
-        q.action_verb = nlp_res["primary_verb"]
-        q.confidence_score = nlp_res["confidence_score"]
-        if payload.bloom_level is None:
-            q.bloom_level = nlp_res["predicted_bloom_level"]
-
-    if payload.marks is not None:
-        q.marks = payload.marks
-    if payload.bloom_level is not None:
-        q.bloom_level = payload.bloom_level.upper()
-    if payload.difficulty is not None:
-        q.difficulty = payload.difficulty.upper()
-    if payload.question_type is not None:
-        q.question_type = payload.question_type.upper()
-    if payload.options is not None:
-        q.options = payload.options
-    if payload.correct_answer is not None:
-        q.correct_answer = payload.correct_answer
-    if payload.unit_id is not None:
-        q.unit_id = payload.unit_id
-    if payload.co_id is not None:
-        q.co_id = payload.co_id
-
-    db.commit()
+def update_question(question_id: int, payload: QuestionUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    q = authorized_question(db, user, question_id)
+    changes = payload.model_dump(exclude_unset=True)
+    required = {'question_text', 'marks', 'bloom_level', 'difficulty', 'question_type', 'unit_id', 'co_id'}
+    if any(changes.get(key) is None for key in required.intersection(changes)):
+        raise ValidationException('Question fields cannot be null.')
+    merged = validate_content({**question_values(q), **changes})
+    validate_mapping(db, q.subject_id, merged['unit_id'], merged['co_id'])
+    ensure_unique(db, q.subject_id, merged['question_text'], q.id)
+    old_status = q.review_status
+    changed = any(getattr(q, field) != value for field, value in merged.items())
+    if changed:
+        preserve_legacy_snapshot(db, q, user)
+        for field, value in merged.items():
+            setattr(q, field, value)
+        q.review_status = 'DRAFT'
+        q.text_fingerprint = fingerprint(q.question_text)
+        nlp_result = BloomClassifierEngine.classify(q.question_text)
+        q.action_verb = nlp_result['primary_verb']
+        q.confidence_score = nlp_result['confidence_score']
+        if 'bloom_level' not in changes and 'question_text' in changes:
+            q.bloom_level = nlp_result['predicted_bloom_level']
+        record_event(db, q, user, 'EDITED', 'Content changed; academic review is required again.', old_status)
+    commit_questions(db)
     db.refresh(q)
     return q
 
+
 @router.delete("/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_question(question_id: int, db: Session = Depends(get_db)):
-    q = db.query(Question).filter(Question.id == question_id).first()
-    if not q:
-        raise NotFoundException("Question", question_id)
+def delete_question(question_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    q = authorized_question(db, user, question_id)
     db.delete(q)
     db.commit()
     return None
 
 @router.post("/batch-delete")
-def batch_delete_questions(payload: BatchDeleteRequest, db: Session = Depends(get_db)):
+def batch_delete_questions(payload: BatchDeleteRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if not payload.question_ids:
         return {"status": "success", "deleted_count": 0}
-    deleted_count = db.query(Question).filter(Question.id.in_(payload.question_ids)).delete(synchronize_session=False)
+    selected = [authorized_question(db, user, question_id) for question_id in set(payload.question_ids)]
+    deleted_count = len(selected)
+    for question in selected:
+        db.delete(question)
     db.commit()
     return {"status": "success", "deleted_count": deleted_count}
 
 @router.post("/batch-assign")
-def batch_assign_questions(payload: BatchAssignRequest, db: Session = Depends(get_db)):
+def batch_assign_questions(payload: BatchAssignRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if not payload.question_ids:
         return {"status": "success", "updated_count": 0}
     update_data = {}
@@ -152,12 +164,30 @@ def batch_assign_questions(payload: BatchAssignRequest, db: Session = Depends(ge
     if not update_data:
         return {"status": "no_change", "updated_count": 0}
         
-    updated_count = db.query(Question).filter(Question.id.in_(payload.question_ids)).update(update_data, synchronize_session=False)
-    db.commit()
+    selected = [authorized_question(db, user, question_id) for question_id in set(payload.question_ids)]
+    for question in selected:
+        validate_mapping(db, question.subject_id, payload.unit_id if payload.unit_id is not None else question.unit_id,
+                         payload.co_id if payload.co_id is not None else question.co_id)
+    for question in selected:
+        changed = ((payload.unit_id is not None and payload.unit_id != question.unit_id) or
+                   (payload.co_id is not None and payload.co_id != question.co_id))
+        if not changed:
+            continue
+        preserve_legacy_snapshot(db, question, user)
+        old_status = question.review_status
+        if payload.unit_id is not None:
+            question.unit_id = payload.unit_id
+        if payload.co_id is not None:
+            question.co_id = payload.co_id
+        question.review_status = 'DRAFT'
+        record_event(db, question, user, 'EDITED', 'Syllabus assignment changed; review required.', old_status)
+    updated_count = len(selected)
+    commit_questions(db)
     return {"status": "success", "updated_count": updated_count}
 
 @router.post("/bulk-import", response_model=BulkImportResponse)
-def bulk_import_questions(payload: BulkImportRequest, db: Session = Depends(get_db)):
+def bulk_import_questions(payload: BulkImportRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    require_subject_access(db, user, payload.subject_id)
     subj = db.query(Subject).filter(Subject.id == payload.subject_id).first()
     if not subj:
         raise NotFoundException("Subject", payload.subject_id)
@@ -196,11 +226,16 @@ def bulk_import_questions(payload: BulkImportRequest, db: Session = Depends(get_
                 continue
 
             q_type = (item.question_type or ("MCQ" if item.options else ("SHORT" if item.marks <= 5 else "LONG"))).upper()
+            clean = validate_content(dict(question_text=item.question_text, marks=item.marks, question_type=q_type,
+                                          options=item.options, correct_answer=item.correct_answer))
+            ensure_unique(db, subj.id, clean['question_text'])
             question = Question(
                 subject_id=subj.id,
                 unit_id=unit_obj.id,
                 co_id=co_obj.id,
-                question_text=item.question_text.strip(),
+                question_text=clean['question_text'],
+                text_fingerprint=fingerprint(clean['question_text']),
+                review_status='DRAFT',
                 marks=item.marks,
                 bloom_level=final_bloom,
                 difficulty=(item.difficulty or "MEDIUM").upper(),
@@ -212,6 +247,7 @@ def bulk_import_questions(payload: BulkImportRequest, db: Session = Depends(get_
                 usage_count=0
             )
             db.add(question)
+            record_event(db, question, user, 'IMPORTED', 'Question imported as a draft.')
             imported += 1
         except Exception as e:
             errors.append(f"Row {idx}: Exception during ingestion: {str(e)}")
@@ -232,12 +268,14 @@ from app.engine.document_parser import DocumentQuestionParser
 async def upload_questions_file(
     subject_id: int = Form(...),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """
     Ingests and parses questions from uploaded .docx or .txt documents.
     Extracts text, identifies marks & units, and auto-tags via Bloom NLP.
     """
+    require_subject_access(db, user, subject_id)
     subj = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subj:
         raise NotFoundException("Subject", subject_id)
@@ -276,11 +314,18 @@ async def upload_questions_file(
             classified += 1
 
             q_type = (item.get("question_type") or ("MCQ" if item.get("options") else ("SHORT" if item.get("marks", 2) <= 5 else "LONG"))).upper()
+            if not unit_obj or not co_obj:
+                raise ValidationException('Configure a syllabus unit and course outcome before importing.')
+            clean = validate_content(dict(question_text=item['question_text'], marks=item.get('marks', 2), question_type=q_type,
+                                          options=item.get('options'), correct_answer=item.get('correct_answer')))
+            ensure_unique(db, subj.id, clean['question_text'])
             question = Question(
                 subject_id=subj.id,
                 unit_id=unit_obj.id,
                 co_id=co_obj.id,
-                question_text=item["question_text"].strip(),
+                question_text=clean['question_text'],
+                text_fingerprint=fingerprint(clean['question_text']),
+                review_status='DRAFT',
                 marks=item.get("marks", 2),
                 bloom_level=nlp_res["predicted_bloom_level"],
                 difficulty=item.get("difficulty", "MEDIUM"),
@@ -292,6 +337,7 @@ async def upload_questions_file(
                 usage_count=0
             )
             db.add(question)
+            record_event(db, question, user, 'IMPORTED', 'Document question imported as a draft.')
             imported += 1
         except Exception as e:
             errors.append(f"Item {idx}: {str(e)}")
@@ -306,7 +352,8 @@ async def upload_questions_file(
 
 
 @router.get("/stats/{subject_id}")
-def get_repository_stats(subject_id: int, db: Session = Depends(get_db)):
+def get_repository_stats(subject_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    require_subject_access(db, user, subject_id)
     subj = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subj:
         raise NotFoundException("Subject", subject_id)

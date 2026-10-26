@@ -169,7 +169,7 @@ class LLMQuestionSynthesizer:
         if not clean_key:
             return {"valid": False, "model": "gemini-3-flash-preview", "error": "API Key cannot be empty."}
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={clean_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models"
         headers = {"x-goog-api-key": clean_key, "Content-Type": "application/json"}
 
         try:
@@ -196,7 +196,7 @@ class LLMQuestionSynthesizer:
                         if cand in models:
                             # Quick generation probe to verify model is actually responding (not 503)
                             try:
-                                probe_url = f"https://generativelanguage.googleapis.com/v1beta/models/{cand}:generateContent?key={clean_key}"
+                                probe_url = f"https://generativelanguage.googleapis.com/v1beta/models/{cand}:generateContent"
                                 probe_res = await client.post(
                                     probe_url,
                                     json={"contents": [{"parts": [{"text": "hi"}]}]},
@@ -211,20 +211,6 @@ class LLMQuestionSynthesizer:
                     else:
                         flash_models = [m for m in models if "flash" in m and "tts" not in m and "image" not in m]
                         detected_model = flash_models[0] if flash_models else "gemini-3-flash-preview"
-
-                    # Persist key cleanly to runtime environment and .env
-                    os.environ["GEMINI_API_KEY"] = clean_key
-                    try:
-                        env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
-                        lines = []
-                        if os.path.exists(env_path):
-                            with open(env_path, "r", encoding="utf-8") as f:
-                                lines = [l for l in f.readlines() if not l.strip().startswith("GEMINI_API_KEY=")]
-                        lines.append(f"GEMINI_API_KEY={clean_key}\n")
-                        with open(env_path, "w", encoding="utf-8") as f:
-                            f.writelines(lines)
-                    except Exception:
-                        pass
 
                     return {
                         "valid": True,
@@ -260,6 +246,26 @@ class LLMQuestionSynthesizer:
                 "model": "gemini-3-flash-preview",
                 "error": f"Network error connecting to Gemini API: {str(e)}"
             }
+
+    @classmethod
+    async def extract_or_synthesize_from_image(
+        cls, image_bytes: bytes, mime_type: str, mode: str, topic: Optional[str],
+        bloom_level: str, marks: int, question_type: str, count: int,
+        api_key: Optional[str], subject_name: Optional[str],
+    ) -> Tuple[List[Dict[str, Any]], str]:
+        from app.core.errors import AppException
+        from app.engine.image_validation import validate_image
+        from app.engine.image_scan import scan_image
+        from starlette.concurrency import run_in_threadpool
+
+        if mode not in ('EXTRACT', 'SYNTHESIZE'):
+            raise AppException('Select Extract or Synthesize mode.', 422, error_code='SCAN_MODE_INVALID')
+        key = (api_key or os.getenv('GEMINI_API_KEY') or '').strip()
+        if not key:
+            raise AppException('Add a Gemini API key to scan physical copies.', 422, error_code='VISION_KEY_REQUIRED')
+        image_bytes, mime_type = await run_in_threadpool(validate_image, image_bytes, mime_type)
+        return await scan_image(image_bytes, mime_type, mode, topic, bloom_level, marks,
+                                question_type, count, key, subject_name)
 
     @classmethod
     async def generate_questions(
@@ -426,7 +432,7 @@ Do not wrap in backticks or markdown, output only raw JSON.
         last_error = "No models available"
         async with httpx.AsyncClient(timeout=20.0) as client:
             for model_name in candidate_models:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
                 
                 gen_config = {
                     "temperature": 0.7,

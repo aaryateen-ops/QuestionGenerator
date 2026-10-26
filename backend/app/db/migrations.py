@@ -4,11 +4,14 @@ import logging
 
 logger = logging.getLogger("qp_system.migrations")
 
-def run_migrations(db_path: str = "qp_system.db"):
+def run_migrations(db_path=None):
     """
     Performs safe, idempotent schema migrations on the SQLite database
     without destroying existing data or seed questions.
     """
+    if db_path is None:
+        from app.core.config import settings
+        db_path = str(settings.DATABASE_PATH)
     if not os.path.exists(db_path):
         return
 
@@ -19,6 +22,12 @@ def run_migrations(db_path: str = "qp_system.db"):
         # 1. Migrate questions table
         cur.execute("PRAGMA table_info(questions)")
         q_cols = {r[1] for r in cur.fetchall()}
+        if 'review_status' not in q_cols:
+            cur.execute("ALTER TABLE questions ADD COLUMN review_status VARCHAR(20) NOT NULL DEFAULT 'DRAFT'")
+        if 'text_fingerprint' not in q_cols:
+            cur.execute('ALTER TABLE questions ADD COLUMN text_fingerprint VARCHAR(64) DEFAULT NULL')
+        cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_question_fingerprint ON questions (subject_id, text_fingerprint)')
+        cur.execute('CREATE INDEX IF NOT EXISTS ix_questions_review_status ON questions (review_status)')
 
         if "question_type" not in q_cols:
             logger.info("Migrating questions: adding question_type column...")
@@ -66,3 +75,4 @@ def run_migrations(db_path: str = "qp_system.db"):
         logger.info("Database migrations applied and verified successfully.")
     except Exception as e:
         logger.error(f"Database migration exception: {e}", exc_info=True)
+        raise

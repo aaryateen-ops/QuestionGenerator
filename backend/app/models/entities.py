@@ -81,16 +81,43 @@ class Question(Base):
     action_verb = Column(String(50), nullable=True)
     confidence_score = Column(Float, nullable=False, default=1.0)
     usage_count = Column(Integer, nullable=False, default=0)
+    review_status = Column(String(20), nullable=False, default='DRAFT', server_default='DRAFT', index=True)
+    text_fingerprint = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     subject = relationship("Subject", back_populates="questions")
     unit = relationship("SyllabusUnit", back_populates="questions")
     course_outcome = relationship("CourseOutcome", back_populates="questions")
+    review_events = relationship('QuestionReviewEvent', cascade='all, delete-orphan')
 
     __table_args__ = (
         Index("idx_question_filters", "subject_id", "unit_id", "bloom_level", "difficulty"),
+        Index('idx_question_fingerprint', 'subject_id', 'text_fingerprint', unique=True),
     )
+
+
+class QuestionReviewEvent(Base):
+    __tablename__ = 'question_review_events'
+
+    id = Column(Integer, primary_key=True)
+    question_id = Column(Integer, ForeignKey('questions.id', ondelete='CASCADE'), nullable=False, index=True)
+    reviewer_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    reviewer_name = Column(String(150), nullable=False)
+    event_type = Column(String(20), nullable=False)
+    from_status = Column(String(20), nullable=False)
+    to_status = Column(String(20), nullable=False)
+    comment = Column(Text, nullable=False)
+    question_text = Column(Text, nullable=False)
+    marks = Column(Integer, nullable=False)
+    bloom_level = Column(String(10), nullable=False)
+    difficulty = Column(String(20), nullable=False)
+    question_type = Column(String(20), nullable=False)
+    options = Column(Text, nullable=True)
+    correct_answer = Column(String(50), nullable=True)
+    unit_id = Column(Integer, nullable=False)
+    co_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class ExamBlueprint(Base):

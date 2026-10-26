@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Offline explanation and demonstration guide for the AI-Powered Question Paper Generator.">
+  <title>Question Paper Generator · Project Explanation Guide</title>
+  <style>
+    :root{color-scheme:light;--ink:#182532;--muted:#526273;--line:#d7dee5;--paper:#fff;--canvas:#f3f5f7;--navy:#17394b;--soft:#edf3f5;--accent:#17674f}
+    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:100px}body{margin:0;background:var(--canvas);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;font-size:16px;line-height:1.75}::selection{background:#cce4dc;color:#142a22}a{color:var(--navy);text-underline-offset:4px}button,input{font:inherit}button,a{touch-action:manipulation}button{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #247c65;outline-offset:4px}[hidden]{display:none!important}
+    .skip{position:absolute;left:16px;top:-70px;background:#fff;padding:8px 16px;z-index:50}.skip:focus{top:12px}.topbar{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line)}.top-inner{max-width:1380px;margin:auto;padding:14px 30px;display:flex;gap:20px;align-items:center;justify-content:space-between}.brand{font-weight:700;font-size:14px;letter-spacing:.01em}.brand span{display:block;font-size:12px;font-weight:400;color:var(--muted)}.tools{display:flex;gap:8px;flex-wrap:wrap}.button{display:inline-flex;justify-content:center;align-items:center;gap:7px;text-decoration:none;background:white;border:1px solid #aebbc7;border-radius:5px;padding:7px 12px;font-size:13px;font-weight:600;line-height:1.5;color:var(--navy)}.button:hover{background:var(--soft)}.button.primary{background:var(--navy);color:#fff;border-color:var(--navy)}.button[aria-pressed=true]{background:var(--soft);border-color:var(--accent);color:var(--accent)}
+    .layout{max-width:1380px;margin:0 auto;display:grid;grid-template-columns:245px minmax(0,1fr);gap:48px;padding:32px 30px 80px}.sidebar{position:sticky;top:104px;align-self:start;max-height:calc(100vh - 130px);overflow:auto;padding-right:12px}.sidebar label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}.sidebar input{width:100%;padding:9px 10px;border:1px solid #aebbc7;border-radius:4px;background:#fff;font-size:13px}.search-status{min-height:24px;font-size:12px;color:var(--muted);margin:6px 0 14px}.sidebar nav a{display:block;text-decoration:none;color:var(--muted);font-size:13px;padding:7px 9px;border-radius:4px;margin:2px 0}.sidebar nav a:hover,.sidebar nav a[aria-current=true]{background:#e1eaee;color:var(--navy);font-weight:600}.sidebar .hint{font-size:12px;color:var(--muted);margin:22px 8px 0;line-height:1.65}
+    main{min-width:0;background:var(--paper);border:1px solid var(--line);padding:48px 52px;border-radius:6px}.document-header{padding-bottom:28px;border-bottom:1px solid var(--line);margin-bottom:42px}h1,h2{font-family:Georgia,"Times New Roman",serif;line-height:1.2;color:#183244;font-weight:500}h1{font-size:clamp(30px,3.1vw,44px);max-width:22ch;margin:0 0 20px;text-wrap:balance}h2{font-size:29px;margin:0 0 20px;text-wrap:balance}h3{font-size:17px;margin:25px 0 10px;font-weight:650}p{margin:0 0 15px;max-width:75ch}.lead{font-size:18px;color:var(--muted);max-width:65ch}.meta{font-size:13px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}.meta span{padding-right:12px;border-right:1px solid var(--line)}.meta span:last-child{border:0}.header-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px}section{margin:0 0 52px;padding-bottom:35px;border-bottom:1px solid var(--line);scroll-margin-top:100px}section:last-of-type{border:0;margin-bottom:0;padding-bottom:0}.muted{color:var(--muted)}.note,.pitch{padding:20px 22px;border:1px solid var(--line);border-radius:4px;background:var(--soft);margin:20px 0}.pitch{font-family:Georgia,"Times New Roman",serif;font-size:21px;line-height:1.6;background:#f6f8f8}.note strong{color:var(--navy)}ul,ol{padding-left:24px;margin:12px 0 22px}li{padding-left:3px;margin:8px 0}li p{margin:5px 0 14px}.step-list>li{margin-bottom:18px}.step-list strong{color:var(--navy)}code,kbd{font-family:Consolas,"Courier New",monospace;font-size:.88em}code{background:#eef1f4;padding:2px 5px;border-radius:3px;overflow-wrap:anywhere}pre{margin:14px 0 24px;padding:16px 19px;background:#f5f7f8;border:1px solid var(--line);border-radius:4px;overflow:auto;line-height:1.65}pre code{padding:0;background:none;white-space:pre;overflow-wrap:normal}.table-wrap{overflow:auto;margin:18px 0 24px}table{border-collapse:collapse;width:100%;font-size:14px;min-width:480px}th,td{padding:12px 13px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}th{background:#eef3f5;color:var(--navy);font-weight:650}td:first-child{font-weight:600;color:var(--navy)}.small{font-size:13px;color:var(--muted)}.flow{display:flex;flex-wrap:wrap;align-items:center;gap:9px;padding:17px 0;margin:16px 0}.flow span{border:1px solid #b7c8ce;border-radius:4px;padding:8px 12px;font-size:14px;background:#f6f9f9}.flow b{font-weight:400;color:var(--muted)}.diagram{border:1px solid var(--line);border-radius:4px;overflow:auto;background:#fafcfc;padding:10px;margin:20px 0}.diagram svg{display:block;width:100%;min-width:620px;height:auto}.speaker-note{display:none;margin:20px 0;padding:15px 18px;background:#fff8e9;border:1px solid #d8c494;border-radius:4px;color:#56451f;font-size:14px}.speaker-note strong{display:block;margin-bottom:5px}.show-notes .speaker-note{display:block}.demo-time{display:inline-block;color:var(--muted);font-size:12px;margin-left:8px;font-weight:400}details{margin:12px 0;border-bottom:1px solid var(--line);padding:0 0 12px}summary{cursor:pointer;font-weight:600;color:var(--navy);padding:6px 0}details p{margin:12px 0 4px}.document-footer{border-top:1px solid var(--line);padding-top:24px;margin-top:40px;font-size:12px;color:var(--muted)}.focus .layout{grid-template-columns:minmax(0,1fr);max-width:1120px}.focus .sidebar{display:none}.focus main{font-size:19px;padding:55px 65px}.focus h2{font-size:34px}.focus .small,.focus .speaker-note{font-size:15px}.focus .table-wrap table{font-size:16px}.focus .brand span{display:none}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    @media(max-width:1050px){.layout{gap:24px;grid-template-columns:210px minmax(0,1fr);padding:25px 20px}main{padding:34px 30px}.top-inner{padding:12px 20px}}
+    @media(max-width:760px){.top-inner{align-items:flex-start;padding:12px 16px;gap:12px;flex-direction:column}.tools{gap:6px}.button{font-size:12px;padding:7px 10px}.layout,.focus .layout{display:block;padding:20px 12px}.sidebar{position:static;max-height:none;padding:0;margin-bottom:20px}.sidebar nav{display:flex;gap:5px;overflow:auto;white-space:nowrap;padding-bottom:5px}.sidebar nav a{flex-shrink:0;border:1px solid var(--line);background:#fff}.sidebar .hint{display:none}.search-status{margin-bottom:7px}main,.focus main{padding:27px 21px;font-size:16px}h2,.focus h2{font-size:26px}h1{font-size:33px}.lead{font-size:17px}.meta{font-size:12px}.pitch{font-size:19px;padding:17px}.focus .sidebar{display:none}html{scroll-padding-top:160px}section{scroll-margin-top:160px}}
+    @media print{@page{size:A4;margin:18mm}body{background:#fff;font-size:10.5pt;line-height:1.55}.topbar,.sidebar,.header-actions,.no-print{display:none!important}.layout,.focus .layout{display:block;max-width:none;padding:0}main,.focus main{border:0;border-radius:0;padding:0;font-size:10.5pt}.document-header{margin-bottom:22px}h1{font-size:29pt;max-width:none}h2,.focus h2{font-size:20pt}h3{font-size:12pt}section{margin-bottom:25px;padding-bottom:18px}h2,h3,summary{break-after:avoid}tr,pre,.note,.pitch,.speaker-note{break-inside:avoid}table,.focus .table-wrap table{font-size:9pt;min-width:0}.table-wrap,.diagram{overflow:visible}.diagram svg{min-width:0}.speaker-note{display:none!important}.show-notes .speaker-note{display:block!important}.pitch{font-size:13pt}a{color:inherit;text-decoration:none}details p{display:block}button{display:none}p,li{orphans:3;widows:3}}
+  </style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to explanation</a>
+<header class="topbar"><div class="top-inner">
+  <div class="brand">Question Paper Generator<span>Offline project explanation &amp; demonstration guide</span></div>
+  <div class="tools" aria-label="Guide controls">
+    <button class="button" id="focus-toggle" type="button" aria-pressed="false">Focus mode</button>
+    <button class="button" id="notes-toggle" type="button" aria-pressed="false">Speaking notes</button>
+    <button class="button" type="button" id="print-guide">Print / Save PDF</button>
+    <a class="button primary" href="http://localhost:5173/" target="_blank" rel="noopener">Open application</a>
+  </div>
+</div></header>
+<div class="layout">
+  <aside class="sidebar" aria-label="Guide navigation">
+    <label for="guide-search">Find a topic</label><input id="guide-search" type="search" placeholder="Search workflow, scan, security…" autocomplete="off">
+    <p class="search-status" id="search-status" role="status">Choose a topic to begin.</p>
+    <nav aria-label="Contents">
+      <a href="#start">Starting the project</a><a href="#overview">Project overview</a><a href="#architecture">Architecture</a><a href="#workflow">Academic workflow</a><a href="#features">Main modules</a><a href="#scan">Snap &amp; Scan</a><a href="#bloom">Bloom &amp; course outcomes</a><a href="#paper">Paper composition</a><a href="#security">Roles &amp; permissions</a><a href="#data">Database &amp; recovery</a><a href="#demo">Live demonstration</a><a href="#viva">Viva questions</a><a href="#quality">Validation &amp; boundaries</a><a href="#troubleshooting">Troubleshooting</a>
+    </nav>
+    <p class="hint">This document opens directly in a browser. It does not require the backend, internet, or a Gemini key.<br><br>Use <strong>Speaking notes</strong> for Hinglish prompts and <strong>Focus mode</strong> when presenting.</p>
+  </aside>
+  <main id="main">
+    <header class="document-header">
+      <h1>AI-Powered Question Paper Generator</h1>
+      <p class="lead">A faculty workspace for building a reviewed question repository and composing examination papers with Bloom’s Taxonomy and Course Outcome mapping.</p>
+      <div class="meta"><span>React + FastAPI + SQLite</span><span>Academic assessment &amp; OBE support</span><span>Project demonstration guide</span></div>
+      <div class="header-actions"><a class="button" href="#demo">Follow the demo sequence</a><a class="button" href="#viva">Prepare for viva</a><a class="button" href="http://127.0.0.1:8000/docs" target="_blank" rel="noopener">Open API documentation</a></div>
+    </header>
+
+    <section id="start"><h2>Starting the project</h2>
+      <p>Keep the project folder intact. These files are the entry points:</p>
+      <div class="table-wrap"><table><thead><tr><th>File</th><th>What happens</th></tr></thead><tbody>
+        <tr><td><code>START_PROJECT.bat</code></td><td>Checks or starts the backend and frontend, verifies their connection, then opens the app and this guide.</td></tr>
+        <tr><td><code>OPEN_PROJECT_GUIDE.bat</code></td><td>Opens only the explanation guide. No servers are started.</td></tr>
+        <tr><td><code>PROJECT_GUIDE.html</code></td><td>This offline document. Open it directly in Chrome or Edge.</td></tr>
+      </tbody></table></div>
+      <ol class="step-list"><li><strong>Double-click START_PROJECT.bat.</strong><p>On a fresh computer, install Python 3.11 with the Windows Python launcher and Node.js/npm first. Initial dependency installation needs internet and may take a few minutes.</p></li><li><strong>Wait for the ready message.</strong><p>The launcher uses <code>backend/.venv</code>, checks server health, and reuses existing healthy services. The application opens at <a href="http://localhost:5173/" target="_blank" rel="noopener">localhost:5173</a>.</p></li><li><strong>Sign in and select a course.</strong><p>Demo sign-in buttons appear only when the local installation explicitly enables demo mode. Faculty accounts need course assignments from an administrator.</p></li><li><strong>Keep this guide in a second tab.</strong><p>Use the application for actions and this guide for explaining the design and decisions.</p></li></ol>
+      <div class="note"><strong>For a demo:</strong> start the project before presenting. Verify the course, available approved questions, and the Gemini key if you plan to show live image scanning. This guide can remain open if internet or an external AI service is unavailable.</div>
+      <h3>Useful launch options</h3><pre><code>START_PROJECT.bat -Mode app
+START_PROJECT.bat -Mode guide
+START_PROJECT.bat -Mode check</code></pre>
+      <p class="small">Closing the browser does not stop the servers. Reopening the launcher reuses healthy services. If startup fails, the terminal stays open so you can read the error; server logs are in <code>.logs</code>.</p>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Bolne ka cue</strong>“Is file se backend aur frontend dono start hote hain. Pehle health check hota hai, phir application aur explanation guide browser mein khulti hain.”</aside>
+    </section>
+
+    <section id="overview"><h2>Project overview</h2>
+      <div class="pitch">“This project helps faculty collect, review and organize examination questions, then compose papers from approved material using syllabus, marks and cognitive-level requirements. It supports manual authoring, document ingestion, AI-assisted generation and camera-based digitization.”</div>
+      <h3>The problem</h3><p>Questions are often spread across notebooks, books, old papers and digital files. Preparing a paper also requires checking marks, syllabus coverage, question repetition and the intended cognitive level.</p>
+      <h3>The objective</h3><p>Bring these tasks into one academic workflow: a reusable repository, suggested Bloom and CO tags, recorded faculty review, and a paper composer that selects approved material.</p>
+      <h3>Who uses it?</h3><p><strong>Faculty</strong> author and review questions for assigned courses. <strong>Administrators and examination coordinators</strong> manage access, approve material, and oversee the examination workflow.</p>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Opening explanation</strong>“Faculty ke questions alag-alag jagah hote hain—notes, books aur purane papers mein. Humne unhe ek repository mein organize kiya hai, jahan review aur approval ke baad paper banaya ja sakta hai.”</aside>
+    </section>
+
+    <section id="architecture"><h2>How the system is organized</h2>
+      <div class="diagram"><svg viewBox="0 0 880 280" role="img" aria-labelledby="architecture-title architecture-description">
+        <title id="architecture-title">Application architecture</title><desc id="architecture-description">React calls FastAPI. FastAPI checks access and invokes academic services. Services read and write SQLite. Vision and AI generation can call the external Gemini API.</desc>
+        <defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#526273" stroke-width="1.6"/></marker></defs>
+        <g font-family="Segoe UI,Arial,sans-serif" text-anchor="middle"><g fill="#fff" stroke="#9bafb9"><rect x="22" y="46" width="170" height="96" rx="5"/><rect x="244" y="46" width="170" height="96" rx="5"/><rect x="466" y="46" width="170" height="96" rx="5"/><rect x="688" y="46" width="170" height="96" rx="5"/><rect x="466" y="204" width="170" height="55" rx="5"/></g>
+        <g fill="#17394b" font-size="18" font-weight="600"><text x="107" y="82">React interface</text><text x="329" y="82">FastAPI</text><text x="551" y="82">Academic services</text><text x="773" y="82">SQLite</text><text x="551" y="238">Gemini API</text></g>
+        <g fill="#526273" font-size="13"><text x="107" y="108">Author · Review · Compose</text><text x="329" y="108">Auth · Validation · Routes</text><text x="551" y="108">Bloom · CO · Review</text><text x="551" y="127">Duplicates · Composition</text><text x="773" y="108">Courses · Questions</text><text x="773" y="127">Assignments · History</text><text x="655" y="185">External, when requested</text></g>
+        <g fill="none" stroke="#526273" stroke-width="1.7" marker-end="url(#arrow)"><path d="M192 94 H234"/><path d="M414 94 H456"/><path d="M636 94 H678"/><path d="M551 143 V194"/></g></g>
+      </svg></div>
+      <div class="table-wrap"><table><thead><tr><th>Layer</th><th>Responsibility</th></tr></thead><tbody>
+        <tr><td>Frontend</td><td>React, Vite and Tailwind CSS provide the faculty interface. KaTeX renders mathematical notation.</td></tr>
+        <tr><td>API</td><td>FastAPI validates requests, authenticates users and enforces access to the requested course.</td></tr>
+        <tr><td>Academic logic</td><td>Focused services handle classification, mapping, reviews, duplicates and paper quality. The composer selects questions under examination constraints.</td></tr>
+        <tr><td>Storage</td><td>SQLAlchemy models store academic entities in SQLite, including course memberships and question-review snapshots.</td></tr>
+        <tr><td>External AI</td><td>Gemini provides requested vision extraction and LLM generation. Image scanning has no fabricated procedural replacement.</td></tr>
+      </tbody></table></div>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Architecture explanation</strong>“React user interface hai. FastAPI request aur permissions validate karta hai. Academic engines classification aur paper selection handle karte hain. SQLite data store karta hai, aur image understanding ke liye Gemini call hota hai.”</aside>
+    </section>
+
+    <section id="workflow"><h2>From source material to an examination</h2>
+      <div class="flow" aria-label="Question lifecycle"><span>Author or ingest</span><b aria-hidden="true">→</b><span>Draft</span><b aria-hidden="true">→</b><span>Reviewed</span><b aria-hidden="true">→</b><span>Approved</span><b aria-hidden="true">→</b><span>Compose paper</span></div>
+      <ol><li>Choose a course and its syllabus context.</li><li>Enter a question, upload a document, generate a draft, or scan a physical copy.</li><li>Check the wording, formulas, options, marks, Bloom level and CO suggestion.</li><li>Save a <strong>Draft</strong>. Exact duplicate questions in the same course are rejected.</li><li>A faculty reviewer adds a comment and marks the question <strong>Reviewed</strong>.</li><li>An administrator verifies the material and marks it <strong>Approved</strong>.</li><li>The composer selects approved questions; faculty inspect the saved paper and export it.</li></ol>
+      <div class="note"><strong>Approval is meaningful:</strong> changing question content or its syllabus mapping returns it to Draft. Previous decisions and saved content versions remain in review history. Existing questions were not automatically approved during migration.</div>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Main point</strong>“AI se aaya hua question seedha final paper mein nahi jata. Pehle Draft, phir faculty review aur admin approval hota hai. Edit karne par dobara review required hota hai.”</aside>
+    </section>
+
+    <section id="features"><h2>Main modules to show</h2>
+      <div class="table-wrap"><table><thead><tr><th>Module</th><th>What to demonstrate</th></tr></thead><tbody>
+        <tr><td>Course &amp; Syllabus</td><td>Course details, units, syllabus topics and Course Outcomes. Curriculum changes are administrator-controlled.</td></tr>
+        <tr><td>Question Repository</td><td>Search, filters, server pagination, duplicate warnings, manual editing, batch actions and the review panel.</td></tr>
+        <tr><td>Question Synthesizer</td><td>By-topic generation, notes/PDF-based generation and physical-copy scanning. Review generated drafts before saving.</td></tr>
+        <tr><td>Cognitive Analyzer</td><td>Detected action verbs, suggested Bloom level, classifier confidence and syllabus mapping.</td></tr>
+        <tr><td>Blueprint Composer</td><td>Examination settings, marks, question types, units and target distributions.</td></tr>
+        <tr><td>Paper Studio / Print</td><td>Paper preview, eligible replacements, quality checks and authenticated PDF download.</td></tr>
+        <tr><td>Faculty &amp; Users</td><td>Account administration and explicit faculty-to-course assignments.</td></tr>
+      </tbody></table></div>
+      <p class="small">The interface retains a neutral academic theme, mathematical previews and a mobile layout that keeps question text visible.</p>
+    </section>
+
+    <section id="scan"><h2>Snap &amp; Scan physical copies</h2>
+      <p>Open <strong>Question Synthesizer → Scan Physical Copy</strong>, or use <strong>Add Question → Manual Entry → Scan Copy</strong>.</p>
+      <div class="table-wrap"><table><thead><tr><th>Mode</th><th>Purpose</th><th>Example</th></tr></thead><tbody>
+        <tr><td>Extract</td><td>Digitize visible printed or handwritten questions. Preserve wording and mathematical content; retain a visibly supplied answer key rather than inventing one.</td><td>A notebook question becomes an editable repository draft.</td></tr>
+        <tr><td>Synthesize</td><td>Identify the academic concept and request new questions using the chosen Bloom level, marks, type and count.</td><td>A photographed algebra problem inspires new examination questions.</td></tr>
+      </tbody></table></div>
+      <h3>Capture and review</h3><p>Use the rear camera when supported, or upload a JPEG, PNG, WebP or HEIC file <strong>smaller than 10 MB</strong>. Review, rotate or retake the photo. The browser prepares a smaller upload, and the server verifies the image’s actual format and dimensions.</p>
+      <h3>Mathematical notation</h3><p>Expressions are represented as LaTeX inside single dollar signs, for example <code>$x^2 - 4 = 0$</code> or <code>$\frac{1}{2}$</code>. The app renders these using KaTeX, while instructors can still edit the source text.</p>
+      <h3>What makes the review useful?</h3><ul><li>Compare the source photo beside the extracted content.</li><li>Edit the stem and MCQ options, with live mathematical previews.</li><li>Confirm a missing MCQ answer key before academic review.</li><li>Receive actionable errors for unreadable images, provider failure or missing configuration.</li></ul>
+      <p class="small">Live scanning requires a Gemini key and internet. Camera capture needs a supported browser and HTTPS or localhost. The manual drawer fills the first extracted question; use the synthesizer to review a multi-question image. Original image files are not persisted as repository attachments.</p>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Scan explanation</strong>“Extract mode mein existing question digitize hota hai. Synthesize mode concept se naya question banata hai. Formula ko LaTeX mein preserve karke preview dikhaya jata hai, lekin final symbols faculty ko photo se compare karne hote hain.”</aside>
+    </section>
+
+    <section id="bloom"><h2>Bloom’s Taxonomy and Course Outcomes</h2>
+      <p>Bloom’s Taxonomy describes the cognitive demand of a question. The classifier uses action verbs and linguistic cues to make an explainable suggestion; it is not a guarantee of the complete educational difficulty.</p>
+      <div class="table-wrap"><table><thead><tr><th>Level</th><th>Meaning</th><th>Illustrative action</th></tr></thead><tbody>
+        <tr><td>L1 · Remember</td><td>Recall knowledge.</td><td>Define a stack.</td></tr><tr><td>L2 · Understand</td><td>Explain a concept.</td><td>Explain recursion.</td></tr><tr><td>L3 · Apply</td><td>Use a method.</td><td>Calculate an expression using a stack.</td></tr><tr><td>L4 · Analyze</td><td>Examine relationships.</td><td>Compare two search strategies.</td></tr><tr><td>L5 · Evaluate</td><td>Judge using criteria.</td><td>Justify an algorithm choice for a workload.</td></tr><tr><td>L6 · Create</td><td>Design a solution.</td><td>Design a scheduling strategy.</td></tr>
+      </tbody></table></div>
+      <p>A <strong>Course Outcome</strong> states what a learner should achieve in that course. The mapper compares question content with syllabus units and CO descriptions, including Bloom-level cues, to suggest a mapping.</p>
+      <div class="note"><strong>Explain the distinction:</strong> Bloom level answers “what cognitive task is required?” CO mapping answers “which course learning outcome does it assess?” Faculty must verify both suggestions in context.</div>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Useful viva distinction</strong>“Bloom level question ke thinking level ko batata hai. CO mapping batati hai ki question course ke kaunse learning outcome ko assess karta hai. Dono same cheez nahi hain.”</aside>
+    </section>
+
+    <section id="paper"><h2>How paper composition works</h2>
+      <p>The composer receives a blueprint and an <strong>approved question pool</strong>. It uses constraint-based selection to construct the examination structure from eligible repository questions.</p>
+      <ul><li><strong>Marks and structure:</strong> examination totals, section requirements and selected question types.</li><li><strong>Syllabus context:</strong> included units and Course Outcome information.</li><li><strong>Academic balance:</strong> target Bloom and difficulty distributions.</li><li><strong>Question reuse:</strong> repository IDs and usage data support selection and repetition checks.</li><li><strong>Internal choices:</strong> alternatives represent an either/or question; their answerable marks are counted once.</li></ul>
+      <p>Paper quality checks compare declared marks, section subtotals, internal-choice groups, duplicate IDs and the current approval/version of source questions. Replacements must be approved, belong to the paper’s course, and satisfy replacement constraints.</p>
+      <div class="note"><strong>If the pool is insufficient:</strong> review the error and add or approve suitable questions. Target distributions should be inspected in the generated analytics; do not claim that every target is always met exactly for every available pool.</div>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Composer explanation</strong>“Composer ke paas blueprint aur approved question pool hota hai. Woh marks, units aur question structure ke hisaab se selection karta hai. Faculty final coverage aur generated distribution inspect karti hai.”</aside>
+    </section>
+
+    <section id="security"><h2>Roles, permissions and deployment</h2>
+      <div class="table-wrap"><table><thead><tr><th>Action</th><th>Faculty</th><th>Administrator</th></tr></thead><tbody>
+        <tr><td>Access courses/questions/papers</td><td>Assigned courses only</td><td>All courses</td></tr><tr><td>Author and mark questions reviewed</td><td>Assigned courses</td><td>Available</td></tr><tr><td>Approve questions</td><td>Not permitted</td><td>After review</td></tr><tr><td>Manage curriculum and user assignments</td><td>Not permitted</td><td>Available</td></tr><tr><td>Create administrator accounts</td><td>Not permitted</td><td>Authorized provisioning</td></tr>
+      </tbody></table></div>
+      <p>Access is enforced by the backend, including uploads, batch operations, AI endpoints, paper replacements and PDF downloads. Public registration creates an unassigned faculty account; submitting an administrator role does not grant administrator access.</p>
+      <p>Sign-in is explicit. UI-entered Gemini keys use session storage and are cleared on account switches. Key validation does not overwrite shared backend credentials.</p>
+      <div class="note"><strong>Local demo versus production:</strong> this local installation explicitly enables demo mode for demonstration accounts. Source defaults disable it. Production requires a private signing secret and rejects demo mode. Do not present demo credentials as a production authentication setup.</div>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Security explanation</strong>“Sirf button hide karna security nahi hai. Backend bhi role aur course assignment check karta hai. Faculty doosre course ke IDs use karke questions access nahi kar sakti.”</aside>
+    </section>
+
+    <section id="data"><h2>Database, history and backup</h2>
+      <div class="table-wrap"><table><thead><tr><th>Entity</th><th>Stores</th></tr></thead><tbody>
+        <tr><td>Subject</td><td>Course code, name, department and academic context.</td></tr><tr><td>SyllabusUnit / CourseOutcome</td><td>Units, topics and the course’s expected learning outcomes.</td></tr><tr><td>Question</td><td>Stem, marks, Bloom tag, type, answer options and review status.</td></tr><tr><td>User / SubjectMembership</td><td>Account roles and explicit faculty-course assignments.</td></tr><tr><td>QuestionReviewEvent</td><td>Review decisions, comments, reviewer attribution and saved content snapshots.</td></tr><tr><td>GeneratedPaper</td><td>The saved paper structure and question snapshot used for that examination.</td></tr>
+      </tbody></table></div>
+      <p>SQLite provides local relational storage. Schema migrations preserve existing content. Content edits invalidate approval, while history retains the previous tracked versions.</p>
+      <h3>Backup and recovery</h3><p>The backup tool uses SQLite’s online backup API and verifies database integrity. Restore is an explicit offline operation: stop all database writers first. The tool preserves the previous database before an atomic replacement.</p>
+      <p class="small">Operational commands and recovery precautions are documented in <code>docs/operations.md</code>. Backups contain examination and account data; store them privately. Never perform a live restore as part of the demonstration.</p>
+    </section>
+
+    <section id="demo"><h2>A practical live demonstration</h2>
+      <p>Use this order for an approximately eight-minute explanation. Verify real academic content before approving it; avoid making unreviewed questions appear approved just for the demo.</p>
+      <ol class="step-list">
+        <li><strong>Introduce the problem and sign in.</strong><span class="demo-time">About 1 minute</span><p>Use the overview pitch. Show the active course and explain the difference between faculty and administrator access.</p></li>
+        <li><strong>Show the syllabus and repository.</strong><span class="demo-time">About 1 minute</span><p>Point out units, COs, question text, marks, Bloom tags and the review-status filter. Demonstrate search or pagination.</p></li>
+        <li><strong>Author or scan a question.</strong><span class="demo-time">About 2 minutes</span><p>For a network-independent demonstration, use manual entry. With a configured Gemini key, show a clear physical-copy photo, rotation, extraction and source comparison.</p></li>
+        <li><strong>Explain review and history.</strong><span class="demo-time">About 1 minute</span><p>Show a draft, reviewer comments and the approval sequence. Only approve content that has actually been checked.</p></li>
+        <li><strong>Compose from an adequate approved pool.</strong><span class="demo-time">About 2 minutes</span><p>Choose the blueprint. Inspect marks, distributions, internal choices and quality warnings. Show PDF download or print preview.</p></li>
+        <li><strong>Finish with architecture and limitations.</strong><span class="demo-time">About 1 minute</span><p>Return to this guide. Explain the frontend/API/storage split and the faculty’s responsibility for academic correctness.</p></li>
+      </ol>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Presentation recovery</strong>“Agar internet ya Gemini available na ho, manual authoring aur repository workflow demonstrate kar sakte hain. Live scan ko successful batane ke liye simulated output ko actual OCR result ki tarah present nahi karna hai.”</aside>
+    </section>
+
+    <section id="viva"><h2>Viva questions and concise answers</h2>
+      <details><summary>What is the main contribution of this project?</summary><p>It connects question ingestion, academic tagging, human review and approved-pool paper composition in one faculty workflow.</p></details>
+      <details><summary>Where is AI used?</summary><p>Gemini handles requested image understanding and LLM generation. Bloom classification and CO suggestions also use local explainable rule/keyword logic. These are different mechanisms and should be described separately.</p></details>
+      <details><summary>How does scanning differ from generating a new question?</summary><p>Extraction digitizes the question visible in the photo. Synthesis uses the photo’s concept to request a new question under chosen academic controls.</p></details>
+      <details><summary>How are mathematical formulas handled?</summary><p>The transcription uses LaTeX inside dollar signs. KaTeX renders it in the interface. The instructor compares the rendered formula with the source image before saving and reviewing it.</p></details>
+      <details><summary>How do you prevent unsuitable AI output reaching a paper?</summary><p>AI output remains editable draft material. Review and administrator approval are required before the composer can select it. Validation catches structural issues, but mathematical and academic correctness still need faculty checking.</p></details>
+      <details><summary>Does Bloom classification fully measure difficulty?</summary><p>No. The current classifier suggests cognitive levels using action verbs and linguistic cues. The full task, subject context and expected answer matter; faculty verify the suggestion.</p></details>
+      <details><summary>Why use SQLite?</summary><p>It fits the current local application and supports relational models and straightforward backup. A larger multi-user deployment would need a separate concurrency, operations and database-scaling assessment.</p></details>
+      <details><summary>How are duplicates handled?</summary><p>Normalized exact duplicate stems are checked within a course when saving. The editor also shows advisory similar-question matches over the latest 1,000 course entries. Similarity is not a proof of semantic equivalence.</p></details>
+      <details><summary>What happens if the API key is missing or the photo is unclear?</summary><p>The scan returns an actionable error. It does not replace an unreadable photo with invented questions. Topic/document generation can return clearly identified template drafts when its fallback is used.</p></details>
+      <details><summary>What should be improved next?</summary><p>A broader real-image evaluation set, more end-to-end automation, subject-specific semantic validation, and verified marking rubrics would improve the system. These are future improvements, not claims about the current implementation.</p></details>
+    </section>
+
+    <section id="quality"><h2>Validation and honest boundaries</h2>
+      <p>The latest verified implementation run passed <strong>94 backend tests</strong>. The frontend production build and lint command also passed, with existing warnings. These results describe that run and are not a guarantee of academic correctness or future changes.</p>
+      <ul><li>Tests cover classification, paper composition, image validation, vision error paths, access control, review transitions, duplicates, pagination, history and database backup.</li><li>Desktop and mobile browser checks covered the repository, review panel and duplicate feedback.</li><li>PDF/DOCX ingestion and text synthesis have regression checks.</li><li>Live Gemini transcription and physical-camera hardware accuracy still need a representative real-device evaluation.</li></ul>
+      <h3>What not to claim during explanation</h3><ul><li>Do not claim zero OCR errors or guaranteed mathematical correctness.</li><li>Do not describe action-verb classification as a fully semantic assessment model.</li><li>Do not claim that demo mode is suitable for production.</li><li>Do not say all blueprint distribution targets are exact without inspecting that generated paper.</li><li>Do not claim automatic verified solutions or marking rubrics; those are not implemented as a guaranteed feature.</li></ul>
+      <pre><code>backend\.venv\Scripts\python.exe -m pytest backend/tests -q
+
+cd frontend
+npm run build
+npm run lint</code></pre>
+      <aside class="speaker-note" lang="hi-Latn"><strong>Closing explanation</strong>“System faculty ka repetitive work kam karta hai aur review traceable banata hai. AI academic judgement ko replace nahi karta. Final wording, formula, answer aur syllabus suitability faculty verify karti hai.”</aside>
+    </section>
+
+    <section id="troubleshooting"><h2>If something fails during the demo</h2>
+      <div class="table-wrap"><table><thead><tr><th>Symptom</th><th>What to do</th></tr></thead><tbody>
+        <tr><td>Backend connection error</td><td>Run <code>START_PROJECT.bat -Mode check</code>. Start with the launcher, wait for readiness, then refresh the app. Read <code>.logs/backend.err.log</code> if it fails.</td></tr>
+        <tr><td>Missing Python dependency</td><td>Run the startup setup again using <code>powershell -File scripts/start.ps1 -Target setup</code>. Use the project’s virtual environment rather than a different system Python.</td></tr>
+        <tr><td>No courses for a faculty account</td><td>An administrator assigns courses under Faculty &amp; Users. An active account does not automatically grant access to every course.</td></tr>
+        <tr><td>No approved questions available</td><td>Review appropriate drafts and obtain administrator approval. Do not bypass the workflow or fabricate a successful paper.</td></tr>
+        <tr><td>Camera unavailable</td><td>Use the upload fallback. Camera permissions, browser support and HTTPS/localhost affect camera access.</td></tr>
+        <tr><td>Unreadable image or Gemini failure</td><td>Retake with better lighting and framing. Check the key, internet connection and provider quota. Use manual authoring if necessary.</td></tr>
+        <tr><td>A port is already occupied</td><td>The launcher reuses a recognized healthy service. Investigate an unhealthy or unrelated process rather than closing random applications.</td></tr>
+      </tbody></table></div>
+      <p>Keep both tabs ready: <a href="http://localhost:5173/" target="_blank" rel="noopener">the application</a> for the live demonstration and this guide for the explanation.</p>
+    </section>
+    <footer class="document-footer">Prepared for the current local project implementation · Offline HTML document · Print or save as PDF using the toolbar · No external fonts, scripts or services are needed to read this guide.</footer>
+  </main>
+</div>
+<script>
+  const focusButton = document.getElementById('focus-toggle');
+  const notesButton = document.getElementById('notes-toggle');
+  focusButton.addEventListener('click', () => { const enabled = document.body.classList.toggle('focus'); focusButton.setAttribute('aria-pressed', String(enabled)); focusButton.textContent = enabled ? 'Exit focus mode' : 'Focus mode'; });
+  notesButton.addEventListener('click', () => { const enabled = document.body.classList.toggle('show-notes'); notesButton.setAttribute('aria-pressed', String(enabled)); notesButton.textContent = enabled ? 'Hide speaking notes' : 'Speaking notes'; });
+  document.getElementById('print-guide').addEventListener('click', () => window.print());
+  const sections = [...document.querySelectorAll('main section')];
+  const navLinks = [...document.querySelectorAll('nav a')];
+  let printState = null;
+  window.addEventListener('beforeprint', () => {
+    if (printState) return;
+    printState = { hidden: sections.map(section => section.hidden), details: [...document.querySelectorAll('details')].map(detail => [detail, detail.open]) };
+    sections.forEach(section => { section.hidden = false; });
+    printState.details.forEach(([detail]) => { detail.open = true; });
+  });
+  window.addEventListener('afterprint', () => {
+    if (!printState) return;
+    sections.forEach((section, index) => { section.hidden = printState.hidden[index]; });
+    printState.details.forEach(([detail, open]) => { detail.open = open; });
+    printState = null;
+  });
+  document.getElementById('guide-search').addEventListener('input', event => {
+    const term = event.target.value.trim().toLocaleLowerCase();
+    let count = 0;
+    sections.forEach(section => { const matches = !term || section.textContent.toLocaleLowerCase().includes(term); section.hidden = !matches; if (matches) count++; const link = navLinks.find(item => item.hash === '#' + section.id); if (link) link.hidden = !matches; });
+    document.getElementById('search-status').textContent = term ? count + ' matching topic' + (count === 1 ? '' : 's') + '. Clear the search to see everything.' : 'Choose a topic to begin.';
+  });
+  const observer = new IntersectionObserver(entries => { const current = entries.find(entry => entry.isIntersecting); if (!current) return; navLinks.forEach(link => { if (link.hash === '#' + current.target.id) link.setAttribute('aria-current', 'true'); else link.removeAttribute('aria-current'); }); }, { rootMargin: '-15% 0px -65% 0px' });
+  sections.forEach(section => observer.observe(section));
+</script>
+</body>
+</html>

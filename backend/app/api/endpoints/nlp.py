@@ -1,8 +1,13 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional
+from typing import Literal
+from app.core.errors import AppException, NotFoundException
+from app.engine.image_validation import MAX_IMAGE_BYTES
 from app.db.session import get_db
-from app.models.entities import Subject
+from app.models.entities import Subject, User
+from app.api.endpoints.auth import get_current_user
+from app.services.access import require_subject_access
 from app.schemas.dtos import (
     NLPClassifyRequest, NLPClassifyResponse, NLPVerbMatch,
     SynthesizeQuestionRequest, SynthesizeQuestionResponse, SynthesizedQuestionItem,
@@ -15,6 +20,52 @@ from app.engine.document_parser import DocumentQuestionParser
 
 router = APIRouter(prefix="/nlp", tags=["NLP Bloom Classifier"])
 
+
+@router.post('/scan-image', response_model=SynthesizeQuestionResponse)
+async def scan_question_image(
+    file: UploadFile = File(...),
+    mode: Literal['EXTRACT', 'SYNTHESIZE'] = Form('EXTRACT'),
+    subject_id: Optional[int] = Form(None, ge=1),
+    unit_number: Optional[int] = Form(None, ge=1),
+    bloom_level: Literal['L1', 'L2', 'L3', 'L4', 'L5', 'L6'] = Form('L3'),
+    marks: int = Form(2, ge=1, le=100),
+    question_type: Literal['MCQ', 'SHORT', 'LONG'] = Form('SHORT'),
+    count: int = Form(3, ge=1, le=20),
+    api_key: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if subject_id:
+        require_subject_access(db, user, subject_id)
+    try:
+        image_bytes = await file.read(MAX_IMAGE_BYTES)
+    finally:
+        await file.close()
+    if len(image_bytes) >= MAX_IMAGE_BYTES:
+        raise AppException('Choose an image smaller than 10 MB.', 413, error_code='IMAGE_TOO_LARGE')
+    subject = db.query(Subject).filter(Subject.id == subject_id).first() if subject_id else None
+    if subject_id and not subject:
+        raise NotFoundException('Subject', subject_id)
+    if subject and unit_number and not any(u.unit_number == unit_number for u in subject.units):
+        raise NotFoundException('Syllabus unit', unit_number)
+    context = None
+    if subject:
+        context = f'{subject.name} ({subject.code or ""}). Syllabus: ' + '; '.join(
+            f'{u.title}: {u.topics or u.description or ""}' for u in subject.units
+            if not unit_number or u.unit_number == unit_number)
+    questions, engine = await LLMQuestionSynthesizer.extract_or_synthesize_from_image(
+        image_bytes, file.content_type or '', mode, None, bloom_level, marks, question_type, count, api_key, context)
+    units = [{'unit_number': u.unit_number, 'title': u.title, 'description': u.description,
+              'topics': u.topics or ''} for u in subject.units] if subject else []
+    outcomes = [{'code': c.code, 'description': c.description, 'target_bloom_level': c.target_bloom_level}
+                for c in subject.course_outcomes] if subject else []
+    for question in questions:
+        mapping = CourseOutcomeMapper.suggest_mapping(question['question_text'], question['bloom_level'], units, outcomes)
+        question['suggested_co_code'] = mapping['suggested_co_code'] if outcomes else None
+        question['suggested_unit_number'] = mapping['suggested_unit_number'] if units else unit_number
+    return SynthesizeQuestionResponse(topic='Physical copy scan', target_bloom=bloom_level,
+                                     engine_used=engine, questions=[SynthesizedQuestionItem(**q) for q in questions])
+
 @router.post("/validate-api-key", response_model=ValidateApiKeyResponse)
 async def validate_api_key(payload: ValidateApiKeyRequest):
     """
@@ -25,7 +76,9 @@ async def validate_api_key(payload: ValidateApiKeyRequest):
 
 
 @router.post("/classify", response_model=NLPClassifyResponse)
-def live_classify_question(payload: NLPClassifyRequest, db: Session = Depends(get_db)):
+def live_classify_question(payload: NLPClassifyRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if payload.subject_id:
+        require_subject_access(db, user, payload.subject_id)
     # 1. Run Bloom Taxonomy Classifier
     raw_result = BloomClassifierEngine.classify(payload.question_text)
     
@@ -83,7 +136,9 @@ def live_classify_question(payload: NLPClassifyRequest, db: Session = Depends(ge
 
 
 @router.post("/synthesize", response_model=SynthesizeQuestionResponse)
-async def synthesize_ai_questions(payload: SynthesizeQuestionRequest, db: Session = Depends(get_db)):
+async def synthesize_ai_questions(payload: SynthesizeQuestionRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if payload.subject_id:
+        require_subject_access(db, user, payload.subject_id)
     """
     Generative AI Question Synthesizer.
     Generates novel questions (MCQ/SHORT/LONG) using Google Gemini API or deep procedural engine.
@@ -164,12 +219,15 @@ async def synthesize_from_document(
     difficulty: str = Form("MEDIUM"),
     count: int = Form(3),
     api_key: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """
     Extracts text from uploaded notes/PDF/Word document and uses generative AI
     to author brand-new curriculum-aligned questions grounded in the document context.
     """
+    if subject_id:
+        require_subject_access(db, user, subject_id)
     file_bytes = await file.read()
     extracted_text = DocumentQuestionParser.extract_raw_text(file_bytes, file.filename)
     
